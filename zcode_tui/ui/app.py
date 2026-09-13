@@ -53,6 +53,8 @@ COMMANDS: list[tuple[str, str]] = [
     ("/compact", "compact context: summarize older conversation now"),
     ("/sessions", "browse & resume ZCode GUI sessions (read-only)"),
     ("/resume", "resume a ztui session"),
+    ("/continue", "alias of /resume"),
+    ("/new", "alias of /clear"),
     ("/clear", "clear transcript and start a fresh session"),
     ("/cost", "show token usage"),
     ("/undo", "revert last turn: restore file changes and drop the messages"),
@@ -848,8 +850,10 @@ class ZtuiApp(App):
             self.run_worker(self._pick_model(), exclusive=False, name="model-picker")
         elif cmd == "/mode":
             self._cycle_mode(arg.strip() or None)
-        elif cmd == "/clear":
+        elif cmd == "/clear" or cmd == "/new":
             self._clear()
+        elif cmd == "/continue":
+            self.run_worker(self._resume_picker(), exclusive=False, name="resume-picker")
         elif cmd == "/cost":
             self._notice("token usage this session:\n" + self.loop.usage.report())
         elif cmd == "/resume":
@@ -934,6 +938,13 @@ class ZtuiApp(App):
                 return
             persona = self._persona_by_command[cmd]
             task_text = arg.strip() or f"按 {persona.name} 的本职完成当前工作区的一项典型任务"
+            persona_prompt = persona.system_prompt
+            if persona.inject_agents_md:
+                from ..agent.context import instruction_chain_text
+
+                instr = instruction_chain_text(self.cwd)
+                if instr:
+                    persona_prompt = f"{persona_prompt}\n\n{instr}"
             prompt_body = (
                 f"按 agent 角色「{persona.name}」完成任务。\n\n"
                 f"# Task\n\n{task_text}"

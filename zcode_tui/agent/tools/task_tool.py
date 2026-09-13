@@ -85,6 +85,12 @@ async def _run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             known = ", ".join(p.name for p in scan_personas()) or "none found"
             return ToolResult(f"unknown persona {persona_name!r} (available: {known})", is_error=True)
         persona_prompt = persona.system_prompt
+        if persona.inject_agents_md:
+            from ..context import instruction_chain_text
+
+            instr = instruction_chain_text(ctx.cwd)
+            if instr:
+                persona_prompt = f"{persona_prompt}\n\n{instr}"
 
     from ..loop import AgentLoop
 

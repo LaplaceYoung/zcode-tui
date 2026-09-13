@@ -91,6 +91,15 @@ def _instruction_chain(cwd: Path) -> list[tuple[Path, str]]:
     return out
 
 
+def instruction_chain_text(cwd: Path) -> str | None:
+    """Rendered AGENTS.md instruction block (user + project chain), or None."""
+    instructions = _instruction_chain(cwd)
+    if not instructions:
+        return None
+    blocks = [f"Contents of {path}:\n\n{text}" for path, text in instructions]
+    return "# Instructions\n\n" + "\n\n".join(blocks)
+
+
 def build_system_prompt(cwd: Path, mode: str, goal: str | None = None) -> str:
     parts = [BASE_PROMPT]
     if mode == "plan":

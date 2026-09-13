@@ -16,6 +16,7 @@ class Persona:
     system_prompt: str
     path: Path
     color: str = ""
+    inject_agents_md: bool = False
 
 
 def _parse(path: Path) -> Persona | None:
@@ -25,6 +26,7 @@ def _parse(path: Path) -> Persona | None:
         return None
     name = path.stem
     description, color = "", ""
+    inject_agents_md = False
     body = raw
     m = re.match(r"^---\s*\n(.*?)\n---\s*\n", raw, re.DOTALL)
     if m:
@@ -38,9 +40,11 @@ def _parse(path: Path) -> Persona | None:
                 description = v
             elif k == "color":
                 color = v
+            elif k == "injectAgentsMd":
+                inject_agents_md = v.strip().lower() in ("true", "1", "yes")
     if not description:
         description = next((l.strip() for l in body.splitlines() if l.strip()), "")
-    return Persona(name, description, body, path, color)
+    return Persona(name, description, body, path, color, inject_agents_md)
 
 
 def scan_personas() -> list[Persona]:

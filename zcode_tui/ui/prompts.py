@@ -281,7 +281,9 @@ class MCPScreen(ModalScreen[None]):
             for name, tools_n, running in self._rows:
                 dot = "●" if running else "○"
                 color = "#57ab5a" if running else "#6b6d78"
-                yield Label(Text(f"{dot} {name}    {tools_n} tool(s)    {'running' if running else 'stopped'}", style=f"bold {color}")
+                state = "running" if running else "stopped"
+                label_text = Text(f"{dot} {name}    {tools_n} tool(s)    {state}", style=f"bold {color}")
+                yield Label(label_text)
 
     def on_key(self, event) -> None:
         if event.key in ("escape", "enter", "q"):

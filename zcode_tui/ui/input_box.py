@@ -58,5 +58,19 @@ class ChatInput(TextArea):
             return
         await super()._on_key(event)
 
+    async def _on_paste(self, event: events.Paste) -> None:
+        text = event.text or ""
+        lines = text.count("\n") + 1
+        if len(text) > 400 or lines > 7:
+            marker = f"[pasted {lines} lines · {len(text)} chars] "
+            self.insert(marker)
+            store = getattr(self.app, "_store_paste_blob", None)
+            if store is not None:
+                store(marker, text)
+            event.stop()
+            event.prevent_default()
+            return
+        await super()._on_paste(event)
+
     def clear(self) -> None:
         self.text = ""

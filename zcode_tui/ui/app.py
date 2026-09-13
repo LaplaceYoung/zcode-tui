@@ -94,6 +94,7 @@ class ZtuiApp(App):
         ("ctrl+p", "search_prev", "Prev match"),
         ("ctrl+x", "arm_ctrlx", "Arm kill-all"),
         ("ctrl+k", "kill_all", "Stop subagents"),
+        ("ctrl+v", "paste_attach", "Attach clipboard image"),
         Binding("shift+tab", "toggle_mode", "Plan/build", priority=True),
     ]
 
@@ -137,6 +138,8 @@ class ZtuiApp(App):
         self._history_nav = 0
         self._loops: list[dict] = []
         self._search_state: dict | None = None
+        self._pending_attachments: list[Path] = []
+        self._paste_blobs: dict[str, str] = {}
         own = self.zconfig.own.defaults
         self.bell_enabled = own.get("bell") == "on"
         self.notify_mode = own.get("notify", "off")
@@ -255,10 +258,50 @@ class ZtuiApp(App):
         await self._dispatch(text)
 
     async def _dispatch(self, text: str) -> None:
+        text = self._expand_paste_markers(text)
         content = self._with_images(text)
+        if self._pending_attachments:
+            content = self._merge_attachments(content)
         self._mount(UserMsg(text))
         self._ensure_session()
         self._agent_task = asyncio.create_task(self._run_agent(content))
+
+    def _merge_attachments(self, content):
+        import base64
+
+        if isinstance(content, str):
+            content = [{"type": "text", "text": content}]
+        if "image" not in self.model.input_modalities:
+            self._notice(
+                f"{self.model.id} can't see images — {len(self._pending_attachments)} attach(es) ignored "
+                "(switch to a vision-ready model via /model)"
+            )
+            self._pending_attachments = []
+            return content
+        mimes = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                 ".gif": "image/gif", ".webp": "image/webp"}
+        image_paths = []
+        for p in list(self._pending_attachments):
+            try:
+                raw = p.read_bytes()
+            except OSError:
+                continue
+            if len(raw) > 10 * 1024 * 1024:
+                self._notice(f"{p.name} >10MB — skipped")
+                continue
+            content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": mimes.get(p.suffix.lower(), "image/png"),
+                    "data": base64.b64encode(raw).decode(),
+                },
+            })
+            image_paths.append(p)
+        if image_paths:
+            self._mount(AttachBlock(image_paths))
+        self._pending_attachments = []
+        return content
 
     def _with_images(self, text: str):
         import base64
@@ -316,6 +359,65 @@ class ZtuiApp(App):
                 self._cursor_end()
             return True
         return False
+
+    def _store_paste_blob(self, marker: str, text: str) -> None:
+        """Save the full pasted text away; the composer keeps only the marker."""
+        self._paste_blobs[marker] = text
+        self._notice(f"📋 stored {marker.strip('[] ')} (expands via ctrl+o in transcript)")
+
+    def _expand_paste_markers(self, text: str) -> str:
+        for marker in list(self._paste_blobs):
+            key = marker.rstrip()
+            if key in text:
+                blob = self._paste_blobs.pop(marker)
+                text = text.replace(key, blob)
+        return text
+
+    def _paste_attachments_dir(self) -> Path:
+        from ..zconfig import ZTUI_DATA_DIR
+
+        d = ZTUI_DATA_DIR / "pastes"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    async def _paste_attach(self) -> None:
+        data = await self._clipboard_image_bytes()
+        if not data:
+            self._notice("clipboard has no image (Ctrl+V 适用于图片剪贴)")
+            return
+        import time as _time
+
+        ext = "png" if data.startswith(b"\x89PNG") else "jpg"
+        p = self._paste_attachments_dir() / f"img-{_time.strftime('%Y%m%d-%H%M%S')}.{ext}"
+        p.write_bytes(data)
+        self._pending_attachments.append(p)
+        self._refresh_metrics()
+        self._notice(f"📎 image attached ({len(data) // 1024}KB) → will send with next message")
+
+    async def _clipboard_image_bytes(self) -> bytes | None:
+        import re as _re
+
+        for cls in ("PNGf", "JPEG"):
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "osascript", "-e", f"the clipboard as «class {cls}»",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                out, _ = await proc.communicate()
+            except OSError:
+                continue
+            if proc.returncode != 0:
+                continue
+            text = out.decode("utf-8", "replace").strip()
+            m = _re.match(r"^«data [A-Za-z]*([0-9A-Fa-f ]*)»$", text)
+            if not m:
+                continue
+            try:
+                return bytes.fromhex(_re.sub(r"[^0-9A-Fa-f]", "", m.group(1)))
+            except ValueError:
+                continue
+        return None
 
     def _push_history(self, text: str) -> None:
         if text and (not self._history or self._history[-1] != text):
@@ -588,6 +690,8 @@ class ZtuiApp(App):
         u = self.loop.usage
         t.append(f"  ·  ↑{self._fmt_num(u.input + u.cache_write)}", style="#61afef")
         t.append(f" ↓{self._fmt_num(u.output)}", style=T.DIM)
+        if self._pending_attachments:
+            t.append(f" · 📎 {len(self._pending_attachments)}", style=T.ACCENT)
         self._metrics_line.update(t)
 
     # -- transcript factories (called from AppCallbacks) ---------------------
@@ -1438,6 +1542,9 @@ class ZtuiApp(App):
             self._agent_task.cancel()
         self._notice(f"stopped {n} subagent(s) and the running turn")
         self._refresh_status()
+
+    def action_paste_attach(self) -> None:
+        self.run_worker(self._paste_attach(), exclusive=False, name="paste-attach")
 
     def action_toggle_mode(self) -> None:
         self._cycle_mode("build" if self.mode == "plan" else "plan")

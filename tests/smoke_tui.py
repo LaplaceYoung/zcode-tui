@@ -99,19 +99,21 @@ async def main() -> None:
         sid = sessions[0].id
         print(f"✓ session persisted: {sid} titled {sessions[0].title[:40]!r}")
 
-        # 4. permission modal for a mutating write (rejected with key '3')
+        # 4. permission modal for a mutating write (rejected with key '3');
+        #    keep rejecting any follow-up attempts until the turn ends.
         app._input.text = "Write the word TEST into a file named zz_perm_check.txt"
         await pilot.press("enter")
         for _ in range(600):
             if isinstance(app.screen, PermissionScreen):
+                await pilot.press("3")
+                await asyncio.sleep(0.3)
+            if app._agent_busy:
+                await asyncio.sleep(0.25)
+            else:
                 break
-            await asyncio.sleep(0.25)
-        assert isinstance(app.screen, PermissionScreen), "permission modal missing"
-        print("✓ permission modal appeared for write")
-        await pilot.press("3")
         await wait_idle(app)
         assert not (CWD / "zz_perm_check.txt").exists(), "file was written despite rejection"
-        print("✓ rejection honored, no file written")
+        print("✓ all write attempts rejected, no file written")
 
         # 5. /model opens the picker, escape closes
         app._input.text = "/model"

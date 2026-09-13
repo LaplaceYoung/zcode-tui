@@ -126,6 +126,9 @@ class ZtuiApp(App):
         ("ctrl+k", "kill_all", "Stop subagents"),
         ("ctrl+v", "paste_attach", "Attach clipboard image"),
         ("ctrl+t", "transcript_view", "Transcript viewer"),
+        ("pageup", "page_up", "Page up"),
+        ("pagedown", "page_down", "Page down"),
+        ("home", "scroll_home", "Top"),
         ("end", "follow_bottom", "Jump to bottom"),
         Binding("shift+tab", "toggle_mode", "Plan/build", priority=True),
     ]
@@ -288,10 +291,17 @@ class ZtuiApp(App):
         if direction < 0:
             self._follow = False
             self._refresh_status()
+        elif self._at_bottom():
+            self._follow = True
+            self._unseen = 0
+            self._refresh_status()
 
     def _follow_if_enabled(self) -> None:
         if self._follow:
             self._chat.scroll_end(animate=False)
+        else:
+            self._unseen += 1
+            self._refresh_status()
 
     def _mount(self, widget) -> None:
         was_bottom = self._at_bottom()
@@ -1588,11 +1598,18 @@ class ZtuiApp(App):
         self._notice(f"mode: {self.mode} — {MODE_HINTS[self.mode]}")
         self._refresh_status()
 
+    _PLACEHOLDERS = {
+        "plan": "Describe what to plan — I will research and propose…",
+        "build": "Try: fix the failing test",
+        "yolo": "Try: refactor everything (still asks on rm -rf)",
+    }
+
     def _apply_mode_border(self) -> None:
         colors = {"plan": "#61afef", "build": T.ACCENT, "yolo": "#e5534b"}
         color = colors.get(self.mode, T.ACCENT)
         try:
             self._input.styles.border = ("round", color)
+            self._input.placeholder = self._PLACEHOLDERS.get(self.mode, "")
         except Exception:
             pass
 
@@ -1887,6 +1904,21 @@ class ZtuiApp(App):
     def action_paste_attach(self) -> None:
         self.run_worker(self._paste_attach(), exclusive=False, name="paste-attach")
 
+    def action_page_up(self) -> None:
+        self._chat.scroll_page_up(animate=False)
+
+    def action_page_down(self) -> None:
+        self._chat.scroll_page_down(animate=False)
+
+    def action_scroll_home(self) -> None:
+        self._chat.scroll_home(animate=False)
+
+    def action_scroll_end_action(self) -> None:
+        self._chat.scroll_end(animate=False)
+
+    def action_redraw(self) -> None:
+        self.refresh()
+
     def action_transcript_view(self) -> None:
         from .prompts import TranscriptScreen
 
@@ -1945,6 +1977,9 @@ class ZtuiApp(App):
         if usage.requests:
             t.append("  ·  ", style="#3c3f4a")
             t.append(usage.fmt(), style=T.DIM)
+        if self._queue:
+            t.append("  ·  ", style="#3c3f4a")
+            t.append(f"⧗ {len(self._queue)} queued", style="#e0af68")
         if extra:
             t.append("  ·  ", style="#3c3f4a")
             t.append(extra, style="#e0af68")

@@ -18,7 +18,7 @@ ZCode 桌面端很好用，但有时你就是想在终端里把活干完。ztui 
 - **双协议全兼容**：`anthropic` + `openai-compatible`，zcode 里配的 9 个 provider（GLM-5.3、GLM-5.3-Flash、Kimi-K3、DeepSeek、OpenRouter…）开箱即用
 - **思考档位同源**：low / high / max 直接翻译自 zcode 的模型目录（catalog），默认档也和 zcode 一致
 - **语义对齐而非重新发明**：todo、undo、压缩、队列、`!` shell、`@` 提及、skills、goals……逐项对照 zcode/CC 行为实现
-- **只读互操作**：能续聊 zcode GUI 的历史会话、看它的定时任务和 checkpoints——但绝不写 zcode 的任何文件
+- **只读互操作**：续聊 zcode GUI 历史会话（`/sessions`）、定时任务面板（`/automations`）、checkpoints 漂移分析（`/checkpoints`）、workflow 巡检与执行（`/workflow` `/workflow-run`）、memory 面板（`/memory`）、git worktree（`/worktree`）、会话轨迹（`/trajectory`）——绝不写 zcode 的任何文件
 
 ## 快速开始
 

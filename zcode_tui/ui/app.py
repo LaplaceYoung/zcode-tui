@@ -56,6 +56,8 @@ COMMANDS: list[tuple[str, str]] = [
     ("/cost", "show token usage"),
     ("/undo", "revert last turn: restore file changes and drop the messages"),
     ("/export", "export this conversation to a Markdown file"),
+    ("/btw", "ask a quick side-question while the agent is busy (does not interrupt)"),
+    ("/settings", "open the unified settings panel (bell/thinking/vim/notify/mode/theme)"),
     ("/goal", "set/show/clear the session goal (drives every turn)"),
     ("/loop", "repeat a prompt every N minutes until /loop stop"),
     ("/plugins", "browse plugin marketplaces & their skills (read-only)"),
@@ -95,6 +97,7 @@ class ZtuiApp(App):
         ("ctrl+x", "arm_ctrlx", "Arm kill-all"),
         ("ctrl+k", "kill_all", "Stop subagents"),
         ("ctrl+v", "paste_attach", "Attach clipboard image"),
+        ("ctrl+t", "transcript_view", "Transcript viewer"),
         Binding("shift+tab", "toggle_mode", "Plan/build", priority=True),
     ]
 
@@ -860,6 +863,10 @@ class ZtuiApp(App):
                 self._notice(f"undone: restored {stats['restored']} file(s), removed {stats['removed']} message(s)")
         elif cmd == "/export":
             self._export_markdown()
+        elif cmd == "/btw":
+            await self._btw(arg.strip())
+        elif cmd == "/settings":
+            self.run_worker(self._settings_panel(), exclusive=False, name="settings")
         elif cmd == "/bell":
             self.bell_enabled = not self.bell_enabled
             self.zconfig.own.set_default(bell="on" if self.bell_enabled else "off")
@@ -931,6 +938,61 @@ class ZtuiApp(App):
             self._notice(f"compacted: {info['replaced']} messages summarized, {info['kept']} kept")
         else:
             self._notice("nothing to compact")
+
+    # -- btw side questions / settings panel --------------------------------
+
+    async def _btw(self, query: str) -> None:
+        from ..providers import anthropic, openai_compat
+
+        if not query:
+            self._notice("usage: /btw <快速问题>（不打断正在进行的回合）")
+            return
+        self._mount(UserMsg(f"[btw] {query}"))
+        msg = AssistantMsg()
+        self._mount(msg)
+        stream = (anthropic if self.provider.kind == "anthropic" else openai_compat).stream_chat
+        system = "You answer quick side-questions briefly (3 sentences max), without tools."
+        messages = [{"role": "user", "content": [{"type": "text", "text": query}]}]
+        try:
+            async for ev in stream(self.provider, self.model, "low", system, messages, []):
+                t = ev.get("type")
+                if t == "text_delta":
+                    msg.append(ev.get("text", ""))
+        finally:
+            msg.finish()
+
+    async def _settings_panel(self) -> None:
+        from .prompts import SettingsScreen
+
+        picked = await self._modal(SettingsScreen(self))
+        if not picked:
+            return
+        if picked == "bell":
+            self.bell_enabled = not self.bell_enabled
+            self.zconfig.own.set_default(bell="on" if self.bell_enabled else "off")
+            self._notice(f"bell {'on' if self.bell_enabled else 'off'}")
+        elif picked == "thinking":
+            self.show_thinking = not self.show_thinking
+            self.zconfig.own.set_default(thinking="show" if self.show_thinking else "hide")
+            for w in self._chat.query(ThinkingMsg):
+                w.display = self.show_thinking
+            self._notice(f"thinking blocks {'shown' if self.show_thinking else 'hidden'}")
+        elif picked == "vim":
+            self.vim_enabled = not self.vim_enabled
+            self.vim_mode = "INSERT"
+            self.zconfig.own.set_default(vim="on" if self.vim_enabled else "off")
+            self._notice(f"vim input: {'on' if self.vim_enabled else 'off'}")
+        elif picked == "notify":
+            modes = ["off", "term", "mac"]
+            self.notify_mode = modes[(modes.index(self.notify_mode) + 1) % 3] if self.notify_mode in modes else "off"
+            self.zconfig.own.set_default(notify=self.notify_mode)
+            self._notice(f"desktop notifications: {self.notify_mode}")
+        elif picked == "mode":
+            self._cycle_mode()
+        elif picked == "theme":
+            await self._theme_picker()
+        elif picked == "compact":
+            self.run_worker(self._compact_now(), exclusive=False, name="compactor")
 
     # -- goal / loop ---------------------------------------------------------
 
@@ -1545,6 +1607,33 @@ class ZtuiApp(App):
 
     def action_paste_attach(self) -> None:
         self.run_worker(self._paste_attach(), exclusive=False, name="paste-attach")
+
+    def action_transcript_view(self) -> None:
+        from .prompts import TranscriptScreen
+
+        body = self._transcript_text(limit=120)
+        self.push_screen(TranscriptScreen(body))
+
+    def _transcript_text(self, limit: int = 120) -> str:
+        lines: list[str] = []
+        for m in self.loop.messages[-limit:]:
+            role = m.get("role", "?")
+            for b in m.get("content") or []:
+                if not isinstance(b, dict):
+                    continue
+                t = b.get("type")
+                if t == "text":
+                    prefix = "> " if role == "user" else "⏺ "
+                    lines.append(prefix + b.get("text", ""))
+                elif t == "tool_use":
+                    spec = REGISTRY.get(b.get("name", ""))
+                    summary = spec.summarize(b.get("input", {})) if spec else ""
+                    lines.append(f"⏺ {b.get('name')}({summary})")
+                elif t == "tool_result":
+                    head = str(b.get("content", "")).splitlines()
+                    mark = "  ✘ " if b.get("is_error") else "  ✔ "
+                    lines.append(mark + (head[0][:200] if head else ""))
+        return "\n\n".join(lines) if lines else "(empty — say hi!)"
 
     def action_toggle_mode(self) -> None:
         self._cycle_mode("build" if self.mode == "plan" else "plan")

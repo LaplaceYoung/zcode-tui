@@ -353,8 +353,64 @@ class ThemePickerScreen(ModalScreen[str | None]):
             self.dismiss(None)
 
 
+class TranscriptScreen(ModalScreen[None]):
+    """Fullscreen scrollable transcript (plain text, last ~120 messages)."""
+
+    def __init__(self, body: str) -> None:
+        super().__init__()
+        self._body = body
+
+    def compose(self) -> ComposeResult:
+        from textual.containers import VerticalScroll as _VS
+
+        with _VS(classes="transcript-full"):
+            yield Static(Text(self._body, style=T.BODY))
+
+    def on_key(self, event) -> None:
+        if event.key in ("escape", "q"):
+            self.dismiss(None)
+
+
+class SettingsScreen(ModalScreen[str | None]):
+    """Unified settings: toggle bell/thinking/vim/notify, switch mode/theme, compact now."""
+
+    def __init__(self, app) -> None:
+        super().__init__()
+        self._app = app
+
+    def compose(self) -> ComposeResult:
+        from . import theme_tokens as T_
+
+        app = self._app
+        rows = [
+            ("bell", f"bell: {'on' if app.bell_enabled else 'off'}"),
+            ("thinking", f"thinking: {'show' if app.show_thinking else 'hide'}"),
+            ("vim", f"vim: {'on' if app.vim_enabled else 'off'}"),
+            ("notify", f"notify: {app.notify_mode}"),
+            ("mode", f"mode: {app.mode}  (cycle)"),
+            ("theme", f"theme: {T_.current()}  (pick…)"),
+            ("compact", "compact context now"),
+        ]
+        with Vertical(classes="dialog"):
+            yield Label("Settings", classes="dialog-title")
+            self._list = OptionList()
+            for key, label in rows:
+                self._list.add_option(Option(label, id=key))
+            yield self._list
+
+    def on_mount(self) -> None:
+        self._list.focus()
+
+    @on(OptionList.OptionSelected)
+    def _selected(self, event: OptionList.OptionSelected) -> None:
+        self.dismiss(str(event.option.id))
+
+    def on_key(self, event) -> None:
+        if event.key == "escape":
+            self.dismiss(None)
+
+
 class WorkflowScreen(ModalScreen[str | None]):
-    """List dynamic workflow runs (read-only from the dwf journal)."""
 
     def __init__(self, runs) -> None:
         super().__init__()

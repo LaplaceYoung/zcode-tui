@@ -134,6 +134,7 @@ class ZtuiApp(App):
         self._remote = None
         self._relay = None
         self._pairing = None
+        self._wf_runner = None
         self._pending_permission: dict | None = None
         self._file_index: list[str] | None = None
         self._file_index_ts = 0.0
@@ -485,10 +486,14 @@ class ZtuiApp(App):
     def action_interrupt(self) -> None:
         dropped = len(self._queue)
         self._queue.clear()
+        wf = getattr(self, "_wf_runner", None)
+        if wf is not None:
+            wf.cancel()
+            self._notice("workflow run cancelled")
         if self._agent_task and not self._agent_task.done():
             self.loop.cancel()
             self._agent_task.cancel()
-            self._notice(f"interrupted" + (f" · dropped {dropped} queued" if dropped else ""))
+            self._notice("interrupted" + (f" · dropped {dropped} queued" if dropped else ""))
         elif dropped:
             self._notice(f"dropped {dropped} queued message(s)")
         self.close_text()
@@ -891,6 +896,8 @@ class ZtuiApp(App):
             self.run_worker(self._checkpoints_panel(), exclusive=False, name="checkpoints")
         elif cmd == "/workflow":
             self.run_worker(self._workflow_panel(), exclusive=False, name="workflow")
+        elif cmd == "/workflow-run":
+            self.run_worker(self._workflow_run(arg.strip()), exclusive=False, name="workflow-run")
         elif cmd == "/agents":
             self.run_worker(self._agents_panel(), exclusive=False, name="agents")
         elif cmd == "/mcp":
@@ -1266,6 +1273,69 @@ class ZtuiApp(App):
         detail = zworkflows.run_detail(chosen)
         if detail:
             await self._modal(WorkflowDetailScreen(detail))
+
+    async def _workflow_run(self, script: str) -> None:
+        """Execute a dwf launcher (.mjs) with ztui as the driver."""
+        from ..agent.workflow_runner import WorkflowRunner
+
+        script_path = Path(script).expanduser()
+        if not script_path.is_absolute():
+            script_path = (self.cwd / script_path).resolve()
+        if not script_path.exists():
+            candidates = sorted(
+                (self.cwd / ".zcode" / "workflow-runs").glob("dwfrun-*.mjs"),
+                key=lambda p: p.stat().st_mtime,
+            )
+            if candidates:
+                script_path = candidates[-1]
+            else:
+                self._notify_error(f"workflow launcher not found: {script}")
+                return
+        if self._agent_busy:
+            self._notice("agent is working — /workflow-run needs a free agent")
+            return
+        self._ensure_session()
+        self._notice(f"workflow starting: {script_path.name}")
+
+        async def ask_exec(instructions: str, persona: str | None) -> str:
+            from ..agent.loop import AgentLoop
+            from ..agent.tools import ToolResult
+            from ..agent.tools.task_tool import _SubCallbacks
+
+            block_id = f"wf-ask-{time.monotonic_ns()}"
+            self.open_tool(block_id, "wf-ask", {"actor": (persona or "agent")[:60],
+                                                "instructions": instructions[:80]})
+            cb = _SubCallbacks(self.loop.cb, block_id)
+            child = AgentLoop(
+                self.zconfig, self.provider, self.model, self.level, self.cwd,
+                cb, session=None, mode=self.mode,
+                excluded_tools={"task"}, persona_prompt=persona or None,
+            )
+            self.loop.register_subagent(child)
+            await child.user_turn(instructions)
+            result = "".join(cb.texts).strip()
+            self.close_tool(block_id, ToolResult(result or "(no output)"), "")
+            return result
+
+        async def on_event(kind: str, payload: dict) -> None:
+            if kind == "event":
+                etype = payload.get("type", "")
+                if etype == "phase-entered":
+                    self._notice(f"workflow phase: {payload.get('name', '')}")
+                elif etype == "log":
+                    self._notice(f"[wf] {payload.get('message', '')[:200]}")
+
+        runner = WorkflowRunner(str(script_path), ask_exec, on_event)
+        self._wf_runner = runner
+        run = await runner.execute()
+        self._wf_runner = None
+        if run.status == "complete":
+            value = run.value
+            summary = str(value.get("conclusion") or value)[:600] if isinstance(value, dict) else str(value)[:600]
+            self._notice(f"workflow complete → {summary}")
+        else:
+            self._notify_error(f"workflow {run.status}: {run.error or 'no result'}")
+        self._refresh_status()
 
     async def _pick_model(self) -> None:
         picked = await self._modal(

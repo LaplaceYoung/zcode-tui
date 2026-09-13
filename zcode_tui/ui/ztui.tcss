@@ -1,0 +1,168 @@
+Screen {
+  background: $background;
+  color: $text;
+}
+
+#chat {
+  height: 1fr;
+  padding: 0 1;
+  scrollbar-size: 1 1;
+}
+
+.banner {
+  margin: 1 0;
+  padding: 1 2;
+  border: round $primary;
+}
+
+.qr {
+  background: #ffffff;
+  padding: 1 2;
+  width: auto;
+  margin: 1 0;
+}
+
+.user-msg {
+  margin-top: 1;
+  color: $text;
+  text-style: bold;
+}
+
+.assistant {
+  margin-top: 1;
+}
+
+.bullet {
+  width: 2;
+  color: $primary;
+  text-style: bold;
+}
+
+.content {
+  width: 1fr;
+}
+
+.thinking {
+  color: $mute;
+  text-style: italic;
+  margin: 0 0 0 2;
+}
+
+.tool {
+  margin: 0;
+}
+
+.tool-header {
+}
+
+.tool-body {
+  margin-left: 2;
+  color: $faded;
+}
+
+.tool-footer {
+  margin-left: 2;
+  color: $mute;
+}
+
+.todo {
+  margin-left: 2;
+}
+
+.search-hit {
+  border-left: wide $primary;
+}
+
+.notice {
+  margin-left: 2;
+  color: $mute;
+  text-style: italic;
+}
+
+.error {
+  margin-left: 2;
+  color: $error;
+}
+
+#input-dock {
+  height: auto;
+  padding: 0 1;
+}
+
+#slash-menu {
+  max-height: 9;
+  border: round $edge;
+  background: $surface;
+  display: none;
+  margin: 0 1;
+}
+
+#slash-menu.visible {
+  display: block;
+}
+
+SlashMenu OptionList:focus {
+  border: round $primary;
+}
+
+#input {
+  border: round $edge;
+  height: auto;
+  max-height: 10;
+  min-height: 3;
+}
+
+#input:focus {
+  border: round $primary;
+}
+
+.hint {
+  color: $mute;
+  padding: 0 2;
+  height: 1;
+}
+
+#status-line {
+  height: 1;
+  padding: 0 1;
+  background: $surface;
+  color: $faded;
+}
+
+ModalScreen {
+  align: center middle;
+}
+
+.dialog {
+  width: 78;
+  max-height: 80%;
+  border: round $primary;
+  background: $surface;
+  padding: 1 2;
+}
+
+.dialog-title {
+  text-style: bold;
+  color: $text;
+  margin-bottom: 1;
+}
+
+.dialog-body {
+  color: $text;
+  margin-bottom: 1;
+  max-height: 30;
+}
+
+.dialog OptionList {
+  border: none;
+  background: transparent;
+  max-height: 20;
+}
+
+.dialog .option-label {
+  padding: 0 1;
+}
+
+.hintline {
+  margin-bottom: 1;
+}

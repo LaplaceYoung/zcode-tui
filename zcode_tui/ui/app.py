@@ -66,6 +66,7 @@ COMMANDS: list[tuple[str, str]] = [
     ("/checkpoints", "browse workspace checkpoints & drift report (read-only)"),
     ("/workflow", "browse dynamic workflow runs (read-only)"),
     ("/agents", "custom agent personas (~/.zcode/agents, slash-usable)"),
+    ("/mcp", "Manage protocol servers & tools (stdio, ~/.config/zcode-tui/mcp.json)"),
     ("/theme", "switch color theme"),
     ("/notify", "cycle desktop notifications off → term → mac"),
     ("/vim", "toggle vim input mode (esc → NORMAL: hjkl w/b 0/$ x y p i A)"),
@@ -194,6 +195,22 @@ class ZtuiApp(App):
         self._input.focus()
         self._refresh_status()
         self.set_interval(0.15, self._tick)
+        self.run_worker(self._load_mcp(), exclusive=False, name="mcp-loader")
+
+    async def _load_mcp(self) -> None:
+        from ..agent import mcp
+
+        tools = await mcp.load_mcp_tools()
+        if tools:
+            names = ", ".join(sorted({t.name for t in tools}))
+            self._notice(f"MCP: registered {len(tools)} tool(s) — {names}")
+        self._refresh_status()
+
+    async def _mcp_panel(self) -> None:
+        from ..agent.mcp import mcp_status
+        from .prompts import MCPScreen
+
+        await self._modal(MCPScreen(mcp_status()))
 
     # -- loop helpers --------------------------------------------------------
 
@@ -757,6 +774,8 @@ class ZtuiApp(App):
             self.run_worker(self._workflow_panel(), exclusive=False, name="workflow")
         elif cmd == "/agents":
             self.run_worker(self._agents_panel(), exclusive=False, name="agents")
+        elif cmd == "/mcp":
+            self.run_worker(self._mcp_panel(), exclusive=False, name="mcp")
         elif cmd in self._persona_by_command:
             if self._agent_busy:
                 self._notice("agent is working — esc to interrupt, or wait")
@@ -1462,6 +1481,12 @@ class ZtuiApp(App):
     def on_unmount(self) -> None:
         if self._agent_task and not self._agent_task.done():
             self._agent_task.cancel()
+        from ..agent import mcp
+
+        try:
+            asyncio.get_event_loop().create_task(mcp.shutdown_mcp())
+        except Exception:
+            pass
         for server in (self._remote,):
             if server is not None:
                 try:

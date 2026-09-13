@@ -265,6 +265,29 @@ class AgentsScreen(ModalScreen[None]):
             self.dismiss(None)
 
 
+class MCPScreen(ModalScreen[None]):
+    """MCP servers: status and served tools count."""
+
+    def __init__(self, status_rows) -> None:
+        super().__init__()
+        self._rows = status_rows
+
+    def compose(self) -> ComposeResult:
+        with Vertical(classes="dialog"):
+            yield Label("MCP servers (stdio · ~/.config/zcode-tui/mcp.json)", classes="dialog-title")
+            if not self._rows:
+                yield Label(Text("(no MCP servers configured — edit mcp.json and restart)", style=T.DIM))
+                return
+            for name, tools_n, running in self._rows:
+                dot = "●" if running else "○"
+                color = "#57ab5a" if running else "#6b6d78"
+                yield Label(Text(f"{dot} {name}    {tools_n} tool(s)    {'running' if running else 'stopped'}", style=f"bold {color}")
+
+    def on_key(self, event) -> None:
+        if event.key in ("escape", "enter", "q"):
+            self.dismiss(None)
+
+
 class PluginsScreen(ModalScreen[None]):
     """Marketplace plugins and their exposed skills (read-only)."""
 

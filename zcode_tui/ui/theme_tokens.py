@@ -54,6 +54,67 @@ DIM = PALETTES["python"]["DIM"]
 BODY = PALETTES["python"]["BODY"]
 _current = "python"
 
+# Glyph sets: "safe" renders on every stock terminal font (geometric shapes,
+# box drawing, block elements, ASCII — no dingbats, no tofu risk); "fancy" is
+# the richer Claude-Code-like set (⏺ ⎿ ✔ ✘ ☐ ◐ ✻ braille) for patched fonts.
+# Toggle with /glyphs; persisted in own config.
+GLYPH_SETS: dict[str, dict[str, str]] = {
+    "safe": {
+        "bullet": "●",
+        "sub": "└",
+        "check": "✓",
+        "cross": "×",
+        "spin": "/-\\|",
+        "think": "◆",
+        "think_alt": "◇",
+        "bar_full": "█",
+        "bar_empty": "░",
+        "cursor": "▌",
+        "todo_pending": "[ ]",
+        "todo_progress": "[~]",
+        "todo_done": "[x]",
+        "running": ">",
+        "arrow": "›",
+    },
+    "fancy": {
+        "bullet": "⏺",
+        "sub": "⎿",
+        "check": "✔",
+        "cross": "✘",
+        "spin": "⣾⣽⣻⢿⡿⣟⣯⣷",
+        "think": "✻",
+        "think_alt": "✽",
+        "bar_full": "▮",
+        "bar_empty": "▯",
+        "cursor": "▍",
+        "todo_pending": "☐",
+        "todo_progress": "◐",
+        "todo_done": "☒",
+        "running": "▸",
+        "arrow": "›",
+    },
+}
+
+# Mutable live glyph table (assigned by set_glyphs).
+GLYPHS: dict[str, str] = dict(GLYPH_SETS["safe"])
+_glyphs_current = "safe"
+
+
+def set_glyphs(name: str) -> None:
+    global GLYPHS, _glyphs_current
+    if name in GLYPH_SETS:
+        GLYPHS.clear()
+        GLYPHS.update(GLYPH_SETS[name])
+        _glyphs_current = name
+
+
+def glyphs_current() -> str:
+    return _glyphs_current
+
+
+def glyphs() -> dict[str, str]:
+    return GLYPHS
+
 
 def names() -> list[str]:
     return list(PALETTES)

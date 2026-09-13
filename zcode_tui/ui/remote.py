@@ -176,7 +176,7 @@ PAGE = """<!doctype html>
 <div id="chat">connecting…</div>
 <div id="hint" class="dim">auto-refreshes every 1.5s</div>
 <div id="perm">
-  <div>⏺ <b id="ptool"></b></div>
+  <div>● <b id="ptool"></b></div>
   <div class="cmd" id="pcmd"></div>
   <div class="btns">
     <button id="a1" onclick="approve('once')">1 Yes</button>

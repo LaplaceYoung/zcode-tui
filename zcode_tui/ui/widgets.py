@@ -14,13 +14,10 @@ from textual.widgets import Static
 
 from . import theme_tokens as T
 
-BULLET = "⏺"
-SUB = "⎿"
 
 COLLAPSE_LINES = 8
 DIFF_CAP = 16
-_SPIN_FRAMES = "⣾⣽⣻⢿⡿⣟⣯⣷"
-_THINK_FRAMES = "✻✽✶✢✳"
+
 _BARE_URL_RE = __import__("re").compile(r'(?<![(\]"\'])https?://[^\s>"\']+[^\s>"\'.,:;!?)]')
 
 
@@ -146,11 +143,11 @@ class UserMsg(Static):
 
 
 class AssistantMsg(Horizontal):
-    """Streaming assistant text with the ⏺ bullet gutter."""
+    """Streaming assistant text with the ● bullet gutter."""
 
     def __init__(self) -> None:
         super().__init__(classes="assistant")
-        self._bullet = Static(BULLET, classes="bullet")
+        self._bullet = Static(T.GLYPHS["bullet"], classes="bullet")
         self._body = Static("", classes="content")
         self._text = ""
         self._last_render = 0.0
@@ -173,7 +170,7 @@ class AssistantMsg(Horizontal):
 
     def _render_markdown(self) -> None:
         if self._text.strip():
-            body = self._text if self.finished else self._text + " ▍"
+            body = self._text if self.finished else self._text + f" {T.GLYPHS['cursor']}"
             self._body.update(Markdown(linkify_markdown(body)))
         else:
             self._body.update("")
@@ -220,15 +217,15 @@ class ThinkingMsg(Vertical):
 
     def _render_header(self, running: bool) -> None:
         if running:
-            frame = _THINK_FRAMES[int(time.monotonic() * 6) % len(_THINK_FRAMES)]
+            frame = (T.GLYPHS["think"], T.GLYPHS["think_alt"])[int(time.monotonic() * 6) % 2]
             self._header.update(Text(f"{frame} {self._word}…", style=f"italic {T.ACCENT_LIGHT}"))
         else:
             words = len(self._text.split())
-            self._header.update(Text(f"✻ Thought for a while ({words} words)", style=f"italic {T.DIM}"))
+            self._header.update(Text(f"{T.GLYPHS['think']} Thought for a while ({words} words)", style=f"italic {T.DIM}"))
 
 
 class ToolBlock(Vertical):
-    """One tool call: header with status, collapsible ⎿ body."""
+    """One tool call: header with status, collapsible └ body."""
 
     def __init__(self, tool_id: str, name: str, summary: str) -> None:
         super().__init__(classes="tool")
@@ -267,11 +264,11 @@ class ToolBlock(Vertical):
         for sid in self._sub_order[-12:]:
             status, text = self._sub[sid]
             if status == "running":
-                t.append(f"  ▸ {text}\n", style=T.DIM)
+                t.append(f"  {T.GLYPHS['running']} {text}\n", style=T.DIM)
             elif status == "done":
-                t.append(f"  ✔ {text}\n", style="#57ab5a")
+                t.append(f"  {T.GLYPHS['check']} {text}\n", style="#57ab5a")
             else:
-                t.append(f"  ✘ {text}\n", style="#e5534b")
+                t.append(f"  {T.GLYPHS['cross']} {text}\n", style="#e5534b")
         if t.plain.endswith("\n"):
             t.plain = t.plain.rstrip("\n")
         self._body.update(t)
@@ -281,7 +278,7 @@ class ToolBlock(Vertical):
         t.append("sub-agent activity:\n", style=T.DIM)
         for sid in self._sub_order:
             status, text = self._sub[sid]
-            mark, color = {"running": ("▸", T.DIM), "done": ("✔", "#57ab5a")}.get(status, ("✘", "#e5534b"))
+            mark, color = {"running": (T.GLYPHS["running"], T.DIM), "done": (T.GLYPHS["check"], "#57ab5a")}.get(status, (T.GLYPHS["cross"], "#e5534b"))
             t.append(f"  {mark} {text}\n", style=color)
         if t.plain.endswith("\n"):
             t.plain = t.plain.rstrip("\n")
@@ -305,9 +302,10 @@ class ToolBlock(Vertical):
         return f"{time.monotonic() - self._started:.0f}s"
 
     def _render_running(self) -> None:
-        frame = _SPIN_FRAMES[int(time.monotonic() * 8) % len(_SPIN_FRAMES)]
+        spin = T.GLYPHS["spin"]
+        frame = spin[int(time.monotonic() * 8) % len(spin)]
         t = Text()
-        t.append(f"{BULLET} ", style=f"bold {T.ACCENT}")
+        t.append(f"{T.GLYPHS['bullet']} ", style=f"bold {T.ACCENT}")
         t.append(f"{self.tool_name}(", style="bold")
         t.append(self.summary, style=T.BODY)
         t.append(")", style="bold")
@@ -317,10 +315,10 @@ class ToolBlock(Vertical):
     def finish(self, is_error: bool, output: str, note: str, meta: dict) -> None:
         self._done = True
         self._raw_output = output
-        mark = "✘" if is_error else "✔"
+        mark = "×" if is_error else "✓"
         mark_color = "#e5534b" if is_error else "#57ab5a"
         t = Text()
-        t.append(f"{BULLET} ", style=f"bold {T.ACCENT}")
+        t.append(f"{T.GLYPHS['bullet']} ", style=f"bold {T.ACCENT}")
         t.append(f"{self.tool_name}(", style="bold")
         t.append(self.summary, style=T.BODY)
         t.append(")", style="bold")
@@ -354,7 +352,7 @@ class ToolBlock(Vertical):
             text = Text()
             body_style = "#e5534b" if is_error else T.BODY
             for i, line in enumerate(lines):
-                text.append(SUB + " " if i == 0 else "  ", style=T.DIM)
+                text.append(T.GLYPHS["sub"] + " " if i == 0 else "  ", style=T.DIM)
                 _append_linkified(text, line + "\n", body_style)
             if text.plain.endswith("\n"):
                 text.plain = text.plain.rstrip("\n")
@@ -396,11 +394,11 @@ class TodoBlock(Static):
         self.set(todos)
 
     def set(self, todos: list[dict]) -> None:
-        mark = {"pending": ("☐", T.BODY), "in_progress": ("◐", T.ACCENT), "completed": ("☒", "#57ab5a")}
+        mark = {"pending": (T.GLYPHS["todo_pending"], T.BODY), "in_progress": (T.GLYPHS["todo_progress"], T.ACCENT), "completed": (T.GLYPHS["todo_done"], "#57ab5a")}
         t = Text()
-        t.append(f"{BULLET} Updated todos\n", style=f"bold {T.ACCENT}")
+        t.append(f"{T.GLYPHS['bullet']} Updated todos\n", style=f"bold {T.ACCENT}")
         for item in todos:
-            m, color = mark.get(item.get("status", "pending"), ("☐", T.BODY))
+            m, color = mark.get(item.get("status", "pending"), (T.GLYPHS["todo_pending"], T.BODY))
             t.append(f"  {m} ", style=color)
             t.append(item.get("content", "") + "\n", style=color)
         if t.plain.endswith("\n"):
@@ -411,7 +409,7 @@ class TodoBlock(Static):
 class Notice(Static):
     def __init__(self, text: str, style: str = "notice") -> None:
         super().__init__(classes=style)
-        self.update(Text(f"{SUB} {text}", style=T.DIM if style == "notice" else "#e5534b"))
+        self.update(Text(f"{T.GLYPHS['sub']} {text}", style=T.DIM if style == "notice" else "#e5534b"))
 
 
 class AttachBlock(Static):

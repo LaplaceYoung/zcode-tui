@@ -100,7 +100,7 @@ class ModelPickerScreen(ModalScreen[tuple | None]):
             for p in self._providers:
                 for mid, m in p.models.items():
                     current = (p.id, mid) == self._current[:2]
-                    label = f"{'✔ ' if current else '  '}{m.id}  ·  {p.name}"
+                    label = f"{'✓ ' if current else '  '}{m.id}  ·  {p.name}"
                     self._options.add_option(Option(label, id=f"{p.id}|||{mid}"))
             yield self._options
 
@@ -332,7 +332,7 @@ class ThemePickerScreen(ModalScreen[str | None]):
             options = OptionList()
             for name in self._names:
                 p = PALETTES[name]
-                mark = "✔ " if name == self._current else "  "
+                mark = T.GLYPHS["check"] + " " if name == self._current else "  "
                 label = Text()
                 label.append(mark)
                 label.append("██ ", style=p["ACCENT"])
@@ -389,6 +389,7 @@ class SettingsScreen(ModalScreen[str | None]):
             ("notify", f"notify: {app.notify_mode}"),
             ("mode", f"mode: {app.mode}  (cycle)"),
             ("theme", f"theme: {T_.current()}  (pick…)"),
+            ("glyphs", f"glyphs: {T_.glyphs_current()}  (cycle safe ⇄ fancy)"),
             ("compact", "compact context now"),
         ]
         with Vertical(classes="dialog"):
@@ -427,10 +428,10 @@ class WorkflowScreen(ModalScreen[str | None]):
             options = OptionList()
             for r in self._runs:
                 mark, color = {
-                    "completed": ("✔", "#57ab5a"),
-                    "failed": ("✘", "#e5534b"),
+                    "completed": (T.GLYPHS["check"], "#57ab5a"),
+                    "failed": (T.GLYPHS["cross"], "#e5534b"),
                     "cancelled": ("◦", T.DIM),
-                }.get(r.status, ("⣾", T.ACCENT))
+                }.get(r.status, (T.GLYPHS["spin"][0], T.ACCENT))
                 name = r.name or f"run …{r.run_id[-8:]}"
                 tokens = f"{r.spent_tokens / 1e6:.1f}M" if r.spent_tokens >= 1e6 else f"{r.spent_tokens / 1e3:.0f}k"
                 when = datetime.fromtimestamp(r.updated_ms / 1000).strftime("%m-%d %H:%M")
@@ -515,7 +516,7 @@ class CheckpointsScreen(ModalScreen[str | None]):
             options = OptionList()
             for cp in self._checkpoints:
                 when = datetime.fromtimestamp(cp.created_ms / 1000).strftime("%m-%d %H:%M")
-                mark = "✔" if cp.accepted else " "
+                mark = T.GLYPHS["check"] if cp.accepted else " "
                 label = (
                     f"{mark} {when}  ·  {cp.file_count:>6,} files · {fmt_bytes(cp.total_bytes):>9}"
                     f"  ·  {cp.full_hash[:10]}"
@@ -568,7 +569,7 @@ class CheckpointDetailScreen(ModalScreen[None]):
             ))
             shown = 0
             for p in d.missing[:8]:
-                yield Label(Text(f"  ✘ 缺失  {p}", style="#e5534b"))
+                yield Label(Text(f"  × 缺失  {p}", style="#e5534b"))
                 shown += 1
             for path, old, new in d.changed_size[:8]:
                 yield Label(Text(f"  ~ 变化  {path}  ({fmt_bytes(old)} → {fmt_bytes(new)})", style=T.ACCENT))

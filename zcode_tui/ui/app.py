@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -58,6 +59,7 @@ COMMANDS: list[tuple[str, str]] = [
     ("/export", "export this conversation to a Markdown file"),
     ("/btw", "ask a quick side-question while the agent is busy (does not interrupt)"),
     ("/settings", "open the unified settings panel (bell/thinking/vim/notify/mode/theme)"),
+    ("/glyphs", "cycle glyph set safe ⇄ fancy (tofu fix for stock fonts)"),
     ("/goal", "set/show/clear the session goal (drives every turn)"),
     ("/loop", "repeat a prompt every N minutes until /loop stop"),
     ("/plugins", "browse plugin marketplaces & their skills (read-only)"),
@@ -150,11 +152,16 @@ class ZtuiApp(App):
         self.vim_enabled = own.get("vim") == "on"
         self.vim_mode = "INSERT"
         self._vim_register = ""
+        glyph_cfg = own.get("glyphs")
+        if glyph_cfg not in ("safe", "fancy"):
+            term = f"{os.environ.get('TERM_PROGRAM', '')} {os.environ.get('TERM', '')}".lower()
+            glyph_cfg = "fancy" if any(k in term for k in ("iterm", "kitty", "wezterm", "alacritty", "ghostty")) else "safe"
         theme_name = own.get("theme", "python")
         from . import theme_tokens as T
 
         T.register_themes(self)
         T.set_palette(theme_name if theme_name in T.PALETTES else "python")
+        T.set_glyphs(glyph_cfg)
         self.theme = f"ztui-{T.current()}"
         from ..agent import skills as skills_mod
 
@@ -677,7 +684,8 @@ class ZtuiApp(App):
         used = m["ctx_used"]
         frac = min(1.0, used / limit)
         full = round(frac * 10)
-        bar = "▮" * full + "▯" * (10 - full)
+        from . import theme_tokens as _TT
+        bar = _TT.GLYPHS["bar_full"] * full + _TT.GLYPHS["bar_empty"] * (10 - full)
         frac_color = "#57ab5a" if frac < 0.5 else ("#e0af68" if frac < 0.75 else "#e5534b")
         pct = f"{frac * 100:.0f}%" if frac >= 0.05 else f"{frac * 100:.1f}%"
         t = Text()
@@ -685,14 +693,14 @@ class ZtuiApp(App):
         t.append(bar, style=frac_color)
         t.append(f"  {self._fmt_num(used)}/{self._fmt_num(limit)}", style=T.DIM)
         if m["ttft_s"] is not None:
-            t.append(f"  ·  ⚡ {m['ttft_s']:.2f}s", style=T.DIM)
+            t.append(f"  ·  ttft {m['ttft_s']:.2f}s", style=T.DIM)
         if m["tok_per_s"]:
             t.append(f"  ·  {m['tok_per_s']:.0f} tok/s", style=T.DIM)
         t.append(f"  ·  {m['cache_ratio'] * 100:.0f}%", style=T.ACCENT)
         t.append(f" cache {self._fmt_num(m['cache_read'])}", style=T.ACCENT)
         u = self.loop.usage
-        t.append(f"  ·  ↑{self._fmt_num(u.input + u.cache_write)}", style="#61afef")
-        t.append(f" ↓{self._fmt_num(u.output)}", style=T.DIM)
+        t.append(f"  ·  in {self._fmt_num(u.input + u.cache_write)}", style="#61afef")
+        t.append(f" out {self._fmt_num(u.output)}", style=T.DIM)
         if self._pending_attachments:
             t.append(f" · 📎 {len(self._pending_attachments)}", style=T.ACCENT)
         self._metrics_line.update(t)
@@ -912,6 +920,15 @@ class ZtuiApp(App):
             self._notice(f"desktop notifications: {self.notify_mode}")
             if self.notify_mode != "off":
                 self._notify_ui("ztui", "notifications are on")
+        elif cmd == "/glyphs":
+            new = "fancy" if T.glyphs_current() == "safe" else "safe"
+            T.set_glyphs(new)
+            self.zconfig.own.set_default(glyphs=new)
+            self._rerender()
+            self._notice(
+                f"glyphs: {new} — "
+                + ("rich ⏺⎿✻ set (needs a patched font)" if new == "fancy" else "universal font-safe set")
+            )
         elif cmd == "/vim":
             self.vim_enabled = not self.vim_enabled
             self.vim_mode = "INSERT"
@@ -993,6 +1010,12 @@ class ZtuiApp(App):
             await self._theme_picker()
         elif picked == "compact":
             self.run_worker(self._compact_now(), exclusive=False, name="compactor")
+        elif picked == "glyphs":
+            new = "fancy" if T.glyphs_current() == "safe" else "safe"
+            T.set_glyphs(new)
+            self.zconfig.own.set_default(glyphs=new)
+            self._rerender()
+            self._notice(f"glyphs: {new}")
 
     # -- goal / loop ---------------------------------------------------------
 
@@ -1551,7 +1574,7 @@ class ZtuiApp(App):
         elif kind == "pair_status":
             st = payload.get("pair_status", "")
             if st == "paired":
-                self._notice("📱 phone connected — mobile sees this workspace")
+                self._notice("[phone] connected — mobile sees this workspace")
             else:
                 self._notice(f"pair status: {st} · keep this window open while pairing")
             self._refresh_status()
@@ -1623,15 +1646,15 @@ class ZtuiApp(App):
                     continue
                 t = b.get("type")
                 if t == "text":
-                    prefix = "> " if role == "user" else "⏺ "
+                    prefix = "> " if role == "user" else "● "
                     lines.append(prefix + b.get("text", ""))
                 elif t == "tool_use":
                     spec = REGISTRY.get(b.get("name", ""))
                     summary = spec.summarize(b.get("input", {})) if spec else ""
-                    lines.append(f"⏺ {b.get('name')}({summary})")
+                    lines.append(f"● {b.get('name')}({summary})")
                 elif t == "tool_result":
                     head = str(b.get("content", "")).splitlines()
-                    mark = "  ✘ " if b.get("is_error") else "  ✔ "
+                    mark = "  × " if b.get("is_error") else "  ✓ "
                     lines.append(mark + (head[0][:200] if head else ""))
         return "\n\n".join(lines) if lines else "(empty — say hi!)"
 
@@ -1658,8 +1681,8 @@ class ZtuiApp(App):
         t.append("  ·  ", style="#3c3f4a")
         t.append(str(self.cwd).replace(str(Path.home()), "~"), style=T.DIM)
         if self._agent_busy:
-            frames = "⣾⣽⣻⢿⡿⣟⣯⣷"
-            frame = frames[int(time.monotonic() * 8) % len(frames)]
+            spin = T.GLYPHS["spin"]
+            frame = spin[int(time.monotonic() * 8) % len(spin)]
             t.append("  ·  ", style="#3c3f4a")
             t.append(f"{frame} {time.monotonic() - self._run_started:.0f}s", style=T.ACCENT)
         usage = self.loop.usage
@@ -1670,7 +1693,7 @@ class ZtuiApp(App):
             t.append("  ·  ", style="#3c3f4a")
             t.append(extra, style="#e0af68")
         if self._pairing is not None and self._pairing.status == "paired":
-            t.append("    📱", style="bold")
+            t.append("    remote", style="bold #57ab5a")
         self._status.update(t)
         self._hint.update(f" ? /help · shift+tab mode · @ file · ctrl+o expand · {MODE_HINTS[self.mode]}")
 

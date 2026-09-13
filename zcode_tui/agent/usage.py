@@ -34,7 +34,7 @@ class Usage:
         self.__init__()
 
     def fmt(self) -> str:
-        parts = [f"↑{self.input + self.cache_write}", f"↓{self.output}"]
+        parts = [f"in {self.input + self.cache_write}", f"out {self.output}"]
         if self.cache_read:
             parts.append(f"cached {self.cache_read}")
         return " · ".join(parts)

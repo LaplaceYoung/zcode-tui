@@ -250,6 +250,21 @@ class AgentLoop:
             blocks.append(cur)
             cur = None
 
+        # Delta batching: coalesce per-token callbacks into ≤12/s UI updates.
+        text_buf: list[str] = []
+        think_buf: list[str] = []
+        last_flush = monotonic()
+
+        async def _flush_batch() -> None:
+            nonlocal last_flush
+            if text_buf:
+                await self.cb.on_text_delta("".join(text_buf))
+                text_buf.clear()
+            if think_buf:
+                await self.cb.on_reasoning_delta("".join(think_buf))
+                think_buf.clear()
+            last_flush = monotonic()
+
         async for ev in stream:
             if self._cancelled:
                 break
@@ -261,39 +276,49 @@ class AgentLoop:
                 first_token_at = monotonic()
                 self.metrics["ttft_s"] = round(first_token_at - call_started, 2)
             if t == "text_start":
+                await _flush_batch()
                 _flush()
                 cur = {"type": "text", "text": ""}
                 await self.cb.on_block_start("text")
             elif t == "reasoning_start":
+                await _flush_batch()
                 _flush()
                 cur = {"type": "thinking", "text": ""}
                 await self.cb.on_block_start("thinking")
             elif t == "tool_use_start":
+                await _flush_batch()
                 _flush()
                 cur = {"type": "tool_use", "id": ev.get("id", ""), "name": ev.get("name", ""), "input_raw": ""}
             elif t == "text_delta":
                 if cur is not None:
                     cur["text"] += ev.get("text", "")
-                await self.cb.on_text_delta(ev.get("text", ""))
+                text_buf.append(ev.get("text", ""))
             elif t == "reasoning_delta":
                 if cur is not None:
                     cur["text"] += ev.get("text", "")
-                await self.cb.on_reasoning_delta(ev.get("text", ""))
-            elif t == "tool_use_delta":
-                if cur is not None:
-                    cur["input_raw"] += ev.get("partial_json", "")
-            elif t == "block_end":
-                _flush()
-                await self.cb.on_block_end()
-            elif t == "usage":
-                last_usage = dict(ev.get("usage", {}))
-                self.usage.add(last_usage)
-                await self.cb.on_usage(last_usage)
-            elif t == "finish":
-                stop_reason = ev.get("stop_reason", "end_turn")
+                think_buf.append(ev.get("text", ""))
+            elif t in ("tool_use_delta", "usage", "block_end", "finish"):
+                await _flush_batch()
+                if t == "tool_use_delta":
+                    if cur is not None:
+                        cur["input_raw"] += ev.get("partial_json", "")
+                elif t == "block_end":
+                    _flush()
+                    await self.cb.on_block_end()
+                elif t == "usage":
+                    last_usage = dict(ev.get("usage", {}))
+                    self.usage.add(last_usage)
+                    await self.cb.on_usage(last_usage)
+                elif t == "finish":
+                    stop_reason = ev.get("stop_reason", "end_turn")
             elif t == "error":
+                await _flush_batch()
                 await self.cb.on_error(ev.get("message", "unknown error"))
                 return "error"
+            now = monotonic()
+            if (text_buf or think_buf) and now - last_flush >= 0.08:
+                await _flush_batch()
+        await _flush_batch()
         _flush()
         # Per-call speed/cache metrics for the UI metrics bar.
         duration = max(0.01, monotonic() - call_started)

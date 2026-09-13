@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import platform
 from datetime import datetime
 from pathlib import Path
@@ -101,6 +102,47 @@ def instruction_chain_text(cwd: Path) -> str | None:
 
 
 def build_system_prompt(cwd: Path, mode: str, goal: str | None = None) -> str:
+    # Cache: instruction files only change on write; skip re-reading per call.
+    sources: list[tuple[str, float]] = []
+    for p in _candidate_files(cwd):
+        try:
+            sources.append((str(p), os.path.getmtime(p)))
+        except OSError:
+            pass
+    memdir = _memory_dir(cwd)
+    mem_index = memdir / "MEMORY.md"
+    try:
+        sources.append((str(mem_index), os.path.getmtime(mem_index)))
+    except OSError:
+        pass
+    key = (str(cwd), mode, goal, tuple(sources))
+    if key == build_system_prompt._last and build_system_prompt._last_val:
+        return build_system_prompt._last_val
+    val = _build(cwd, mode, goal)
+    build_system_prompt._last = key
+    build_system_prompt._last_val = val
+    return val
+
+
+build_system_prompt._last = None  # type: ignore[attr-defined]
+build_system_prompt._last_val = ""  # type: ignore[attr-defined]
+
+
+def _candidate_files(cwd: Path) -> list[Path]:
+    out = [USER_INSTRUCTIONS]
+    d = cwd.resolve()
+    home = Path.home()
+    while True:
+        out.append(d / "AGENTS.md")
+        if d == home or d.parent == d:
+            break
+        d = d.parent
+    memdir = _memory_dir(cwd)
+    out.append(memdir / "MEMORY.md")
+    return out
+
+
+def _build(cwd: Path, mode: str, goal: str | None) -> str:
     parts = [BASE_PROMPT]
     if mode == "plan":
         parts.append(PLAN_PROMPT)

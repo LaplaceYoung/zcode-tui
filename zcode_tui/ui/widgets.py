@@ -164,7 +164,11 @@ class AssistantMsg(Horizontal):
     def append(self, delta: str) -> None:
         self._parts.append(delta)
         now = time.monotonic()
-        if now - self._last_render >= 0.05:
+        # Adaptive gate: short replies stay snappy (50ms), long ones back off
+        # to keep total re-render cost bounded (~12/s regardless of length).
+        total = sum(len(p) for p in self._parts)
+        gate = 0.05 if total < 4000 else 0.12
+        if now - self._last_render >= gate:
             self._render_stream()
             self._last_render = now
 
@@ -192,7 +196,7 @@ class ThinkingMsg(Vertical):
         super().__init__(classes="thinking")
         self._header = Static(classes="tool-footer")
         self._body = Static("", classes="tool-body")
-        self._text = ""
+        self._parts: list[str] = []
         self._last_render = 0.0
         self.expanded = True
         self.finished = False
@@ -202,8 +206,12 @@ class ThinkingMsg(Vertical):
         yield self._header
         yield self._body
 
+    @property
+    def _text(self) -> str:
+        return "".join(self._parts)
+
     def append(self, delta: str) -> None:
-        self._text += delta
+        self._parts.append(delta)
         now = time.monotonic()
         if now - self._last_render > 0.12:
             self._render_header(running=True)
@@ -254,6 +262,7 @@ class ToolBlock(Vertical):
         self._raw_output = ""
         self._diff: tuple[Text, int] | None = None
         self._diff_args: tuple[str | None, str] | None = None
+        self._diff_path: str = ""
         self._sub: dict[str, tuple[str, str]] = {}
         self._sub_order: list[str] = []
 
@@ -352,6 +361,7 @@ class ToolBlock(Vertical):
         diff = meta.get("diff")
         if diff:
             self._diff_args = (diff.get("old"), diff.get("new") or "")
+            self._diff_path = diff.get("path", "")
         if self._diff_args is not None:
             cap = 400 if self.expanded else DIFF_CAP
             text, hidden = build_diff_text(*self._diff_args, cap=cap)
@@ -376,10 +386,14 @@ class ToolBlock(Vertical):
             final.append_text(self._sub_finished_text())
             final.append("\n")
         if self._diff is not None:
+            if self._diff_path:
+                adds = sum(1 for l in (self._diff_args[1] or "").splitlines())
+                final.append(f"{self._diff_path}\n", style="bold #FFD43B")
             final.append_text(self._diff[0])
         else:
             final.append_text(text)
         self._body.update(final)
+        self._render_footer()
         self._render_footer()
 
     def _diff_render(self, text: Text | None = None) -> None:

@@ -1986,7 +1986,9 @@ class ZtuiApp(App):
         if self._pairing is not None and self._pairing.status == "paired":
             t.append("    remote", style="bold #57ab5a")
         if not self._follow:
-            t.append("  ·  scroll paused (end to resume)", style="#e0af68")
+            hint = f"{self._unseen} new · end to resume" if self._unseen else "scroll paused · end to resume"
+            t.append("  ·  ", style="#3c3f4a")
+            t.append(hint, style="#e0af68")
         self._status.update(t)
         self._hint.update(f" ? /help · shift+tab mode · @ file · ctrl+o expand · {MODE_HINTS[self.mode]}")
 

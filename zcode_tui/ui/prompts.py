@@ -411,6 +411,72 @@ class SettingsScreen(ModalScreen[str | None]):
             self.dismiss(None)
 
 
+class WorktreeScreen(ModalScreen[None]):
+    """Git worktrees of the current repo (read-only; add/remove via agent commands)."""
+
+    def __init__(self, trees, cwd: str) -> None:
+        super().__init__()
+        self._trees = trees
+        self._cwd = cwd
+
+    def compose(self) -> ComposeResult:
+        from ..agent.zgit import status_line
+
+        with Vertical(classes="dialog"):
+            yield Label(f"Git worktrees — {self._cwd}", classes="dialog-title")
+            self._status_labels: list[Label] = []
+            if not self._trees:
+                yield Label(Text("(not a git repository or no worktrees)", style=T.DIM))
+                return
+            for w in self._trees:
+                main_mark = " (main)" if w.is_main else ""
+                head = Text()
+                head.append(f"▸ {w.branch or w.head} ", style=f"bold {T.ACCENT}")
+                head.append(f"{w.path}", style=T.BODY)
+                head.append(f"  @{w.head}", style=T.DIM)
+                yield Label(head)
+                self._status_labels.append(Label("", style=T.DIM))
+                yield self._status_labels[-1]
+            yield Label(Text("add/remove: ask the agent (git worktree add/remove)", style=T.DIM))
+            self.run_worker(self._fill_statuses(), exclusive=False, name="wt-status")
+
+    async def _fill_statuses(self) -> None:
+        from ..agent.zgit import status_line
+
+        for idx, w in enumerate(self._trees):
+            s = await status_line(w.path)
+            if idx < len(self._status_labels):
+                self._status_labels[idx].update(Text(f"    {s}", style=T.DIM))
+
+    def on_key(self, event) -> None:
+        if event.key in ("escape", "enter", "q"):
+            self.dismiss(None)
+
+
+class TrajectoryScreen(ModalScreen[None]):
+    """Fullscreen trajectory: every event of the current session in order."""
+
+    def __init__(self, rows) -> None:
+        super().__init__()
+        self._rows = rows
+
+    def compose(self) -> ComposeResult:
+        from textual.containers import VerticalScroll as _VS
+
+        with _VS(classes="transcript-full"):
+            yield Label(Text("Trajectory — 当前会话事件轨迹（时间序）", style="bold #ffffff"))
+            for stamp, summary in self._rows:
+                color = T.ACCENT if stamp.endswith(("user",)) else (
+                    "#57ab5a" if "usage" in stamp or "compaction" in stamp else T.BODY)
+                yield Label(Text(f"{stamp}  {summary}", style=color))
+            if not self._rows:
+                yield Label(Text("(empty)", style=T.DIM))
+
+    def on_key(self, event) -> None:
+        if event.key in ("escape", "q"):
+            self.dismiss(None)
+
+
 class WorkflowScreen(ModalScreen[str | None]):
 
     def __init__(self, runs) -> None:

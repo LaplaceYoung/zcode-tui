@@ -60,6 +60,9 @@ COMMANDS: list[tuple[str, str]] = [
     ("/btw", "ask a quick side-question while the agent is busy (does not interrupt)"),
     ("/settings", "open the unified settings panel (bell/thinking/vim/notify/mode/theme)"),
     ("/glyphs", "cycle glyph set safe ⇄ fancy (tofu fix for stock fonts)"),
+    ("/worktree", "list git worktrees of this repo (read-only)"),
+    ("/trajectory", "view the session trajectory (/trajectory export → jsonl)"),
+    ("/wiki", "generate/update a project wiki under docs/wiki/"),
     ("/goal", "set/show/clear the session goal (drives every turn)"),
     ("/loop", "repeat a prompt every N minutes until /loop stop"),
     ("/plugins", "browse plugin marketplaces & their skills (read-only)"),
@@ -900,6 +903,29 @@ class ZtuiApp(App):
             self.run_worker(self._workflow_run(arg.strip()), exclusive=False, name="workflow-run")
         elif cmd == "/agents":
             self.run_worker(self._agents_panel(), exclusive=False, name="agents")
+        elif cmd == "/worktree":
+            self.run_worker(self._worktree_panel(), exclusive=False, name="worktree")
+        elif cmd == "/trajectory":
+            self.run_worker(self._trajectory_panel(arg.strip()), exclusive=False, name="trajectory")
+        elif cmd == "/wiki":
+            if self._agent_busy:
+                self._notice("agent is working — wait or esc before /wiki")
+                return
+            WIKI_PROMPT = (
+                "为当前项目生成一套项目 Wiki，输出到 docs/wiki/ 下。要求：\n"
+                "1. 先用 glob/read 全面探索：目录结构、构建/测试配置、主要模块、入口文件、README。\n"
+                "2. 生成这些页面（每页 ≤120 行，只写事实，不写营销话术）：\n"
+                "   - docs/wiki/index.md（目录页：每个页面的链接与一句话简介）\n"
+                "   - docs/wiki/architecture.md（架构与数据流，配 ASCII 图）\n"
+                "   - docs/wiki/modules.md（逐模块：职责、关键文件、对外接口）\n"
+                "   - docs/wiki/build-and-run.md（安装/构建/测试/运行的确切命令）\n"
+                "   - docs/wiki/faq.md（新人最可能踩的 5-8 个坑）\n"
+                "3. 若 docs/wiki/ 已存在则做增量更新而非覆盖重写。\n"
+                "完成后逐一列出创建/更新的文件路径。"
+                + (f"\n\n用户附加要求：{arg.strip()}" if arg.strip() else "")
+            )
+            self._ensure_session()
+            self._agent_task = asyncio.create_task(self._run_agent(WIKI_PROMPT))
         elif cmd == "/mcp":
             self.run_worker(self._mcp_panel(), exclusive=False, name="mcp")
         elif cmd in self._persona_by_command:
@@ -1168,6 +1194,93 @@ class ZtuiApp(App):
         self._input.text = "/search "
         self._cursor_end()
         self._input.focus()
+
+    async def _agents_panel(self) -> None:
+        from .prompts import AgentsScreen
+
+        await self._modal(AgentsScreen(self._personas))
+
+    async def _worktree_panel(self) -> None:
+        from ..agent.zgit import list_worktrees
+        from .prompts import WorktreeScreen
+
+        trees, error = await list_worktrees(str(self.cwd))
+        if error:
+            self._notify_error(error)
+            return
+        await self._modal(WorktreeScreen(trees, str(self.cwd)))
+
+    async def _trajectory_panel(self, arg: str) -> None:
+        from .prompts import TrajectoryScreen
+
+        if arg.startswith("export"):
+            out = self._trajectory_export()
+            self._notice(f"trajectory exported → {out}")
+            return
+        from ..agent.ztrajectories import render_trajectory
+
+        rows = self._trajectory_rows()
+        await self._modal(TrajectoryScreen(rows))
+
+    def _trajectory_rows(self) -> list[tuple[str, str]]:
+        """[(time|kind, summary)] from session events + loop metrics."""
+        from datetime import datetime
+
+        rows: list[tuple[str, str]] = []
+        try:
+            from ..agent.session import load_events
+
+            events = self.session and load_events(self.session.meta.id)
+        except Exception:
+            events = None
+        if not events:
+            for m in self.loop.messages:
+                rows.append((m.get("role", "?"), "· ".join(
+                    str(b.get("text", b.get("name", "")))[:90]
+                    for b in (m.get("content") or []) if isinstance(b, dict)
+                )))
+            return rows
+        for ev in events:
+            ts = datetime.fromtimestamp(ev.get("ts", 0)).strftime("%H:%M:%S")
+            kind = ev.get("type", "?")
+            if kind == "message":
+                role = ev.get("role", "?")
+                head = ""
+                for b in ev.get("content", []):
+                    if isinstance(b, dict) and b.get("type") == "text":
+                        head = b.get("text", "")[:110]
+                        break
+                    if isinstance(b, dict) and b.get("type") == "tool_use":
+                        head = f"{b.get('name')}({str(b.get('input'))[:80]})"
+                        break
+                rows.append((f"{ts} {role}", head))
+            elif kind == "usage":
+                st = ev.get("state", {})
+                rows.append((f"{ts} usage", f"in {st.get('input')} out {st.get('output')} cache {st.get('cache_read')}"))
+            elif kind == "compaction":
+                rows.append((f"{ts} compaction", f"replaced {ev.get('replaced')}"))
+        return rows
+
+    def _trajectory_export(self) -> Path:
+        from datetime import datetime
+
+        from ..zconfig import ZTUI_DATA_DIR
+
+        out_dir = ZTUI_DATA_DIR / "trajectories"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out = out_dir / f"trajectory-{datetime.now():%Y%m%d-%H%M%S}.jsonl"
+        events = []
+        try:
+            from ..agent.session import load_events
+
+            if self.session:
+                events = load_events(self.session.meta.id)
+        except Exception:
+            pass
+        with out.open("w") as f:
+            for e in events:
+                f.write(json.dumps(e, ensure_ascii=False) + "\n")
+        return out
 
     # -- plugins 面板与搜索结束 ------------------------------------------------
 

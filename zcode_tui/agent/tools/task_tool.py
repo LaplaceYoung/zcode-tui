@@ -73,6 +73,19 @@ async def _run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     if not prompt:
         return ToolResult("prompt is required", is_error=True)
 
+    persona_prompt = None
+    persona_name = (args.get("persona") or "").strip()
+    if persona_name:
+        from ..subagents import resolve
+
+        persona = resolve(persona_name)
+        if persona is None:
+            from ..subagents import scan_personas
+
+            known = ", ".join(p.name for p in scan_personas()) or "none found"
+            return ToolResult(f"unknown persona {persona_name!r} (available: {known})", is_error=True)
+        persona_prompt = persona.system_prompt
+
     from ..loop import AgentLoop
 
     cb = _SubCallbacks(loop.cb, ctx.state.get("_current_tool_id", ""))
@@ -87,7 +100,9 @@ async def _run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         mode=loop.mode,
         excluded_tools={"task"},
         max_steps=MAX_SUBAGENT_STEPS,
+        persona_prompt=persona_prompt,
     )
+    loop.register_subagent(child)
     try:
         await child.user_turn(prompt)
     except Exception as e:
@@ -124,6 +139,10 @@ register(
                 "properties": {
                     "description": {"type": "string", "description": "One-line task summary for display"},
                     "prompt": {"type": "string", "description": "Complete instructions for the sub-agent"},
+                    "persona": {
+                        "type": "string",
+                        "description": "Optionally reuse a custom agent persona (~/.zcode/agents/*.md) by name",
+                    },
                 },
                 "required": ["prompt"],
             },

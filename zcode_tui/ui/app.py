@@ -65,6 +65,7 @@ COMMANDS: list[tuple[str, str]] = [
     ("/automations", "list ZCode scheduled automations (read-only)"),
     ("/checkpoints", "browse workspace checkpoints & drift report (read-only)"),
     ("/workflow", "browse dynamic workflow runs (read-only)"),
+    ("/agents", "custom agent personas (~/.zcode/agents, slash-usable)"),
     ("/theme", "switch color theme"),
     ("/notify", "cycle desktop notifications off → term → mac"),
     ("/vim", "toggle vim input mode (esc → NORMAL: hjkl w/b 0/$ x y p i A)"),
@@ -90,6 +91,8 @@ class ZtuiApp(App):
         ("ctrl+f", "search_open", "Search"),
         ("ctrl+n", "search_next", "Next match"),
         ("ctrl+p", "search_prev", "Prev match"),
+        ("ctrl+x", "arm_ctrlx", "Arm kill-all"),
+        ("ctrl+k", "kill_all", "Stop subagents"),
         Binding("shift+tab", "toggle_mode", "Plan/build", priority=True),
     ]
 
@@ -154,6 +157,15 @@ class ZtuiApp(App):
             for s in self._skills
             if "/" + s.name not in {c for c, _ in COMMANDS}
         }
+        from ..agent import subagents
+
+        self._personas = subagents.scan_personas()
+        self._persona_by_command = {
+            "/" + p.name: p
+            for p in self._personas
+            if "/" + p.name not in {c for c, _ in COMMANDS}
+        }
+        self._ctrlx_armed = 0.0
 
     # -- layout --------------------------------------------------------------
 
@@ -496,6 +508,21 @@ class ZtuiApp(App):
                 nxt = self._queue.pop(0)
                 self._agent_task = asyncio.create_task(self._run_agent(nxt))
 
+    async def _run_agent_with_persona(self, persona, prompt_body: str) -> None:
+        self._set_running(True)
+        old_persona = self.loop.persona_prompt
+        self.loop.persona_prompt = persona.system_prompt
+        try:
+            await self.loop.user_turn(prompt_body)
+        except Exception as e:
+            self._notify_error(f"agent error: {e}")
+        finally:
+            self.loop.persona_prompt = old_persona
+            self._set_running(False)
+            if self._queue:
+                nxt = self._queue.pop(0)
+                self._agent_task = asyncio.create_task(self._run_agent(nxt))
+
     def _set_running(self, running: bool) -> None:
         self._agent_busy = running
         if running:
@@ -728,6 +755,24 @@ class ZtuiApp(App):
             self.run_worker(self._checkpoints_panel(), exclusive=False, name="checkpoints")
         elif cmd == "/workflow":
             self.run_worker(self._workflow_panel(), exclusive=False, name="workflow")
+        elif cmd == "/agents":
+            self.run_worker(self._agents_panel(), exclusive=False, name="agents")
+        elif cmd in self._persona_by_command:
+            if self._agent_busy:
+                self._notice("agent is working — esc to interrupt, or wait")
+                return
+            persona = self._persona_by_command[cmd]
+            task_text = arg.strip() or f"按 {persona.name} 的本职完成当前工作区的一项典型任务"
+            prompt_body = (
+                f"按 agent 角色「{persona.name}」完成任务。\n\n"
+                f"# Task\n\n{task_text}"
+            )
+            self._mount(UserMsg(f"{cmd} {arg}" if arg else cmd))
+            self._notice(f"spawning agent persona: {persona.name} ({persona.description[:60]})")
+            self._ensure_session()
+            self._agent_task = asyncio.create_task(
+                self._run_agent_with_persona(persona, prompt_body)
+            )
         elif cmd == "/theme":
             self.run_worker(self._theme_picker(), exclusive=False, name="theme")
         elif cmd == "/notify":
@@ -834,6 +879,11 @@ class ZtuiApp(App):
                 self._queue.append(prompt)
             else:
                 await self._dispatch(prompt)
+
+    async def _agents_panel(self) -> None:
+        from .prompts import AgentsScreen
+
+        await self._modal(AgentsScreen(self._personas))
 
     # -- plugins panel --------------------------------------------------------
 
@@ -1354,6 +1404,21 @@ class ZtuiApp(App):
         blocks = list(self._chat.query(ToolBlock))
         if blocks:
             blocks[-1].toggle_expanded()
+
+    def action_arm_ctrlx(self) -> None:
+        self._ctrlx_armed = time.monotonic()
+        self._refresh_status(extra="ctrl+k to stop all subagents + the running turn")
+
+    def action_kill_all(self) -> None:
+        if time.monotonic() - self._ctrlx_armed > 2.0:
+            return
+        self._ctrlx_armed = 0.0
+        n = self.loop.stop_all_subagents()
+        if self._agent_task and not self._agent_task.done():
+            self.loop.cancel()
+            self._agent_task.cancel()
+        self._notice(f"stopped {n} subagent(s) and the running turn")
+        self._refresh_status()
 
     def action_toggle_mode(self) -> None:
         self._cycle_mode("build" if self.mode == "plan" else "plan")

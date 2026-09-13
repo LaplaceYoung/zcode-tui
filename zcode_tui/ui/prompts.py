@@ -238,6 +238,33 @@ class SessionPickerScreen(ModalScreen[str | None]):
             self.dismiss(None)
 
 
+class AgentsScreen(ModalScreen[None]):
+    """Read-only panel of custom agent personas (~/.zcode/agents)."""
+
+    def __init__(self, personas) -> None:
+        super().__init__()
+        self._personas = personas
+
+    def compose(self) -> ComposeResult:
+        with Vertical(classes="dialog"):
+            yield Label("Custom agents (/.zcode/agents — usable as task persona or slash)", classes="dialog-title")
+            if not self._personas:
+                yield Label(Text("(no personas found in ~/.zcode/agents)", style=T.DIM))
+                return
+            for p in self._personas:
+                head = Text()
+                head.append(f"/{p.name}", style="bold #FFD43B")
+                if p.color:
+                    head.append(f" · {p.color}", style=T.DIM)
+                yield Label(head)
+                yield Label(Text(p.description.replace("\n", " ")[:100], style=T.BODY))
+                yield Label(Text(str(p.path), style=T.DIM))
+
+    def on_key(self, event) -> None:
+        if event.key in ("escape", "enter", "q"):
+            self.dismiss(None)
+
+
 class PluginsScreen(ModalScreen[None]):
     """Marketplace plugins and their exposed skills (read-only)."""
 

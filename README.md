@@ -76,7 +76,9 @@ build 模式下任何可变更操作（写文件 / 执行命令 / 联网抓取�
 
 **Agent 本体**：流式对话 + thinking、后台 bash 三件套（run_in_background / shell_output / shell_kill）、子代理（task）带**嵌套实时进度**、压缩 compaction、undo 文件回滚、plan/build/yolo 权限与持久规则、plan 模式安全网
 
-**交互**:`!` 命令前缀 shell、忙时消息排队、@提及文件/图片、OSC8 链接跳转、ctrl+f 搜索、输入历史召回、`/goal` 目标任务命令、`/loop` 周期循环、`/export` 导出 Markdown
+**交互**:`!` 命令前缀 shell、忙时消息排队、@提及文件/图片、OSC8 链接跳转、ctrl+f 搜索、输入历史召回、`/goal` 目标任务命令、`/loop` 周期循环、`/export` 导出 Markdown、`/btw` 侧问不打断、`ctrl+t` 全屏 transcript viewer、`ctrl+x ctrl+k` 停所有子代理
+
+**生态扩展**:`~/.zcode/agents/*.md` 自定义 agent personas 直接成 slash（`/deep-research …`）或 task persona 参数；**MCP stdio 客户端**（`~/.config/zcode-tui/mcp.json` 配，opencode/CC 同构，工具自动进 loop 赴 `/mcp` 面板查状态）；**Ctrl+V** 图片剪贴附件（osascript) + 长文本粘贴 chip
 
 **zcode 互操作（全只读）**：会话续聊 `/sessions`、定时任务面板 `/automations`、checkpoints 漂移分析 `/checkpoints`、工作流巡检 `/workflow`、skills 复刻为 slash 命令（33 个已加载）、memory 共享
 

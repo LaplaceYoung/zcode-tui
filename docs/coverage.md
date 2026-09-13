@@ -17,6 +17,11 @@
 | 消息队列 | ✅ | 忙时入队、回合结束自动续跑、Esc 丢弃 |
 | ! shell 前缀 | ✅ | 输出注入对话 |
 | 会话历史/恢复 | ✅ | JSONL store + /resume + GUI 会话续聊（/sessions，sqlite 只读） |
+| 自定义 agents（~/.zcode/agents/*.md） | ✅ | persona 亦可作 task <:task> 参数；`/agents` 面板只读；斜杠命令 |
+| MCP（外部工具标准） | ✅ stdio | `mcp.json` 配 opencode/CC 同构；挂进 loop 基础到真正的服务器；HTTP/SSE 暂缓 |
+| 侧问 /btw | ✅ | 顺手问不打扰主回合 |
+| 粘贴智能 | ✅ | Ctrl+V 图片剪贴 + 大段文本 chip 化 |
+| 全屏 transcript viewer | ✅ | ctrl+t 全屏 |
 | 会话分享 | ❌ 云服务 | 依赖 zcode 后端 share 端点，不逆向 |
 | 链接高亮可跳转 | ✅ | assistant/tool 输出裸 URL → OSC8 超链接（iTerm2/kitty/wez 可点）；rich markdown 链接原生支持 |
 | 图片显示 | ⚠️ 边界 | 附件 chip + OSC8 file:// 打开链接（inline bitmap 在 Textual 全屏布局下不可行，需要 kitty/iTerm2 pass-through，届时会破坏渲染——与 Gemini CLI 等 TUI 同样选择外链/文件路径落地）；待 Textual 官方支持再升级 |

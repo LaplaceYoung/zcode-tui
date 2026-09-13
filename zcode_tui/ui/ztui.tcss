@@ -181,3 +181,9 @@ ModalScreen {
 .hintline {
   margin-bottom: 1;
 }
+
+#queue-line {
+  height: 1;
+  padding: 0 2;
+  color: $mute;
+}

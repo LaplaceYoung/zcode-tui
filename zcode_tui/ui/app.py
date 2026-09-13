@@ -95,6 +95,7 @@ COMMANDS: list[tuple[str, str]] = [
     ("/automations", "list ZCode scheduled automations (read-only)"),
     ("/checkpoints", "browse workspace checkpoints & drift report (read-only)"),
     ("/workflow", "browse dynamic workflow runs (read-only)"),
+    ("/memory", "browse this project's zcode memory files (read-only)"),
     ("/agents", "custom agent personas (~/.zcode/agents, slash-usable)"),
     ("/mcp", "Manage protocol servers & tools (stdio, ~/.config/zcode-tui/mcp.json)"),
     ("/theme", "switch color theme"),
@@ -228,6 +229,8 @@ class ZtuiApp(App):
         with Container(id="input-dock"):
             self._metrics_line = Static("", id="metrics-line")
             yield self._metrics_line
+            self._queue_line = Static("", id="queue-line")
+            yield self._queue_line
             self._menu = SlashMenu(id="slash-menu")
             yield self._menu
             self._input = ChatInput(id="input")
@@ -752,6 +755,17 @@ class ZtuiApp(App):
             return f"{n / 1000:.1f}k"
         return str(n)
 
+    def _refresh_queue_line(self) -> None:
+        if not self._queue:
+            self._queue_line.update("")
+            return
+        items = "  |  ".join(q[:36] for q in self._queue[:3])
+        more = f"  +{len(self._queue) - 3}" if len(self._queue) > 3 else ""
+        t = Text()
+        t.append(" queued: ", style=T.DIM)
+        t.append(items + more, style="#e0af68")
+        self._queue_line.update(t)
+
     def _refresh_metrics(self) -> None:
         m = self.loop.metrics
         if not m["calls"]:
@@ -965,6 +979,8 @@ class ZtuiApp(App):
             self.run_worker(self._workflow_run(arg.strip()), exclusive=False, name="workflow-run")
         elif cmd == "/agents":
             self.run_worker(self._agents_panel(), exclusive=False, name="agents")
+        elif cmd == "/memory":
+            self.run_worker(self._memory_panel(), exclusive=False, name="memory")
         elif cmd == "/worktree":
             self.run_worker(self._worktree_panel(), exclusive=False, name="worktree")
         elif cmd == "/trajectory":
@@ -1199,11 +1215,6 @@ class ZtuiApp(App):
             else:
                 await self._dispatch(prompt)
 
-    async def _agents_panel(self) -> None:
-        from .prompts import AgentsScreen
-
-        await self._modal(AgentsScreen(self._personas))
-
     # -- plugins panel --------------------------------------------------------
 
     async def _plugins_panel(self) -> None:
@@ -1277,6 +1288,12 @@ class ZtuiApp(App):
         from .prompts import AgentsScreen
 
         await self._modal(AgentsScreen(self._personas))
+
+    async def _memory_panel(self) -> None:
+        from ..agent.context import _memory_dir
+        from .prompts import MemoryScreen
+
+        await self._modal(MemoryScreen(_memory_dir(self.cwd)))
 
     async def _worktree_panel(self) -> None:
         from ..agent.zgit import list_worktrees
@@ -1617,6 +1634,10 @@ class ZtuiApp(App):
         for child in list(self._chat.children):
             child.remove()
         self.session = None
+        self._pending_attachments = []
+        self._paste_blobs = {}
+        self._unseen = 0
+        self._follow = True
         self.loop = self._new_loop()
         self._mount(WelcomeBanner(VERSION, self._model_label(), str(self.cwd)))
         self._refresh_status()
@@ -1985,6 +2006,7 @@ class ZtuiApp(App):
             t.append(extra, style="#e0af68")
         if self._pairing is not None and self._pairing.status == "paired":
             t.append("    remote", style="bold #57ab5a")
+        self._refresh_queue_line()
         if not self._follow:
             hint = f"{self._unseen} new · end to resume" if self._unseen else "scroll paused · end to resume"
             t.append("  ·  ", style="#3c3f4a")

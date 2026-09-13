@@ -238,6 +238,38 @@ class SessionPickerScreen(ModalScreen[str | None]):
             self.dismiss(None)
 
 
+class MemoryScreen(ModalScreen[None]):
+    """Read-only browser for the zcode memory files of this project."""
+
+    def __init__(self, memory_dir: Path) -> None:
+        super().__init__()
+        self._dir = memory_dir
+
+    def compose(self) -> ComposeResult:
+        from textual.containers import VerticalScroll as _VS
+
+        files = sorted(self._dir.glob("*.md"))
+        with _VS(classes="transcript-full"):
+            yield Label(Text(f"Memory — {self._dir}", style="bold #ffffff"))
+            if not files:
+                yield Label(Text("(memory 目录为空 — agent 在需要时会写入)", style=T.DIM))
+                return
+            for f in files:
+                size = f.stat().st_size
+                yield Label(Text(f"▸ {f.name}  ({size:,} B)", style="bold #FFD43B"))
+                try:
+                    body = f.read_text(errors="replace")
+                except OSError:
+                    body = "(unreadable)"
+                show = body if len(body) <= 4000 else body[:4000] + "\n… (truncated)"
+                yield Label(Text(show, style=T.BODY))
+                yield Label("")
+
+    def on_key(self, event) -> None:
+        if event.key in ("escape", "q"):
+            self.dismiss(None)
+
+
 class AgentsScreen(ModalScreen[None]):
     """Read-only panel of custom agent personas (~/.zcode/agents)."""
 

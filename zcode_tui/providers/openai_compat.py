@@ -38,6 +38,15 @@ def _translate_messages(system: str, messages: list[dict[str, Any]]) -> list[dic
             out.append({"role": role, "content": content})
             continue
         if role == "user":
+            for b in content:
+                if b.get("type") == "image":
+                    src = b.get("source", {})
+                    if src.get("type") == "base64":
+                        media = src.get("media_type", "image/png")
+                        out.append({"role": "user", "content": [{
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{media};base64,{src.get('data', '')}"},
+                        }]})
             texts = [b.get("text", "") for b in content if b.get("type") == "text"]
             if texts:
                 out.append({"role": "user", "content": "\n".join(texts)})

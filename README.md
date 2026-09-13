@@ -4,6 +4,8 @@
 
 <p align="center"><img src="docs/images/banner.png" alt="ztui 欢迎屏（python 黄蓝默认主题）" width="86%"></p>
 
+<p align="center"><img src="docs/images/demo.gif" alt="实时录屏：提问→bash 工具→完成" width="86%"></p>
+
 ## 为什么是 ztui
 
 ZCode 桌面客户端很好用，但有时你只想在终端里把活干完。ztui 把那套**同宗同源**的能力全搬进终端：

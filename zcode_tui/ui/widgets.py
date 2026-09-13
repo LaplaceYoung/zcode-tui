@@ -149,7 +149,7 @@ class AssistantMsg(Horizontal):
         super().__init__(classes="assistant")
         self._bullet = Static(T.GLYPHS["bullet"], classes="bullet")
         self._body = Static("", classes="content")
-        self._text = ""
+        self._parts: list[str] = []
         self._last_render = 0.0
         self.finished = False
 
@@ -157,21 +157,32 @@ class AssistantMsg(Horizontal):
         yield self._bullet
         yield self._body
 
+    @property
+    def text(self) -> str:
+        return "".join(self._parts)
+
     def append(self, delta: str) -> None:
-        self._text += delta
+        self._parts.append(delta)
         now = time.monotonic()
-        if now - self._last_render > 0.05:
-            self._render_markdown()
+        if now - self._last_render >= 0.05:
+            self._render_stream()
             self._last_render = now
 
     def finish(self) -> None:
         self.finished = True
         self._render_markdown()
 
+    def _render_stream(self) -> None:
+        joined = "".join(self._parts)
+        if joined.strip():
+            self._body.update(Text(joined + f" {T.GLYPHS['cursor']}", style=T.BODY))
+        else:
+            self._body.update("")
+
     def _render_markdown(self) -> None:
-        if self._text.strip():
-            body = self._text if self.finished else self._text + f" {T.GLYPHS['cursor']}"
-            self._body.update(Markdown(linkify_markdown(body)))
+        joined = self.text
+        if joined.strip():
+            self._body.update(Markdown(linkify_markdown(joined)))
         else:
             self._body.update("")
 

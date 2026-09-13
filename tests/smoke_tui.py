@@ -87,11 +87,11 @@ async def main() -> None:
         assert tool_blocks, "no ToolBlock rendered"
         assert tool_blocks[0]._done, "tool block not finished"
         texts = list(app._chat.query(AssistantMsg))
-        assert texts and texts[-1]._text.strip(), "no assistant answer"
+        assert texts and texts[-1].text.strip(), "no assistant answer"
         assert list(app._chat.query(UserMsg)), "user message not rendered"
         assert app.loop.usage.requests >= 1, "no usage recorded"
         print(f"✓ tool turn: {tool_blocks[0].tool_name} block done, answer: "
-              f"{texts[-1]._text.strip()[:60]!r}, usage: {app.loop.usage.fmt()}")
+              f"{texts[-1].text.strip()[:60]!r}, usage: {app.loop.usage.fmt()}")
 
         # 3. session must have been persisted
         sessions = list_sessions()

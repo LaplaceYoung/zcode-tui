@@ -178,6 +178,7 @@ class ZtuiApp(App):
         if self._resume_id:
             self.call_after_refresh(lambda: asyncio.ensure_future(self._resume(self._resume_id)))
         self._load_history_lines()
+        self._apply_mode_border()
         self._input.focus()
         self._refresh_status()
         self.set_interval(0.15, self._tick)
@@ -922,6 +923,7 @@ class ZtuiApp(App):
             self.theme = f"ztui-{picked}"
             self.zconfig.own.set_default(theme=picked)
             self._rerender()
+            self._apply_mode_border()
             self._refresh_status()
             self._notice(f"theme: {picked}")
 
@@ -1060,7 +1062,7 @@ class ZtuiApp(App):
         self._mount(WelcomeBanner(VERSION, self._model_label(), str(self.cwd)))
         self._refresh_status()
 
-    def _cycle_mode(self, explicit: str | None) -> None:
+    def _cycle_mode(self, explicit: str | None = None) -> None:
         if explicit in permission.MODES:
             self.mode = explicit
         else:
@@ -1068,8 +1070,17 @@ class ZtuiApp(App):
             self.mode = order[(order.index(self.mode) + 1) % len(order)]
         self.loop.set_mode(self.mode)
         self.zconfig.own.set_default(mode=self.mode)
+        self._apply_mode_border()
         self._notice(f"mode: {self.mode} — {MODE_HINTS[self.mode]}")
         self._refresh_status()
+
+    def _apply_mode_border(self) -> None:
+        colors = {"plan": "#61afef", "build": T.ACCENT, "yolo": "#e5534b"}
+        color = colors.get(self.mode, T.ACCENT)
+        try:
+            self._input.styles.border = ("round", color)
+        except Exception:
+            pass
 
     def _clear(self) -> None:
         for child in list(self._chat.children):

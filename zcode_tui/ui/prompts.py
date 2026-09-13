@@ -477,6 +477,53 @@ class TrajectoryScreen(ModalScreen[None]):
             self.dismiss(None)
 
 
+class HelpScreen(ModalScreen[None]):
+    """Scrollable help: commands, personas, plugin commands, keybinds."""
+
+    def __init__(self, app) -> None:
+        super().__init__()
+        self._app = app
+
+    def compose(self) -> ComposeResult:
+        from textual.containers import VerticalScroll as _VS
+
+        from . import theme_tokens as T_
+
+        app = self._app
+        with _VS(classes="transcript-full"):
+            yield Label(Text("ztui — commands & keybinds", style="bold #ffffff"))
+            yield Label("")
+            yield Label(Text("Commands", style=f"bold {T_.ACCENT}"))
+            for c, d in app._all_commands():
+                if c.startswith("/"):
+                    yield Label(Text(f"  {c:<26} {d}", style=T_.BODY))
+            if app._personas:
+                yield Label(Text("Personas (task persona / slash)", style=f"bold {T_.ACCENT}"))
+                for p in app._personas:
+                    yield Label(Text(f"  /{p.name:<24} {p.description[:60]}", style=T_.BODY))
+            yield Label("")
+            yield Label(Text("Keybinds", style=f"bold {T_.ACCENT}"))
+            for k, d in [
+                ("enter / shift+enter", "send / newline (ctrl+j too)"),
+                ("esc", "interrupt the running turn"),
+                ("shift+tab", "cycle plan / build (yolo via /mode)"),
+                ("ctrl+o", "expand the last tool output"),
+                ("ctrl+f / ctrl+n / ctrl+p", "search / next / previous"),
+                ("↑ / ↓", "input history recall"),
+                ("ctrl+v", "attach clipboard image"),
+                ("ctrl+x then ctrl+k", "stop all subagents + the turn"),
+                ("end", "jump back to the bottom / resume following"),
+                ("ctrl+c ×2", "quit"),
+            ]:
+                yield Label(Text(f"  {k:<26} {d}", style=T_.BODY))
+            yield Label("")
+            yield Label(Text("esc closes this panel", style=T_.DIM))
+
+    def on_key(self, event) -> None:
+        if event.key in ("escape", "q"):
+            self.dismiss(None)
+
+
 class WorkflowScreen(ModalScreen[str | None]):
 
     def __init__(self, runs) -> None:

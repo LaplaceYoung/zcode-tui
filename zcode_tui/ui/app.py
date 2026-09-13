@@ -209,6 +209,13 @@ class ZtuiApp(App):
         }
         self._ctrlx_armed = 0.0
         self._follow = True
+        from ..agent import pcommands
+
+        self._plugin_cmds = {
+            "/" + c.name: c
+            for c in pcommands.scan_plugin_commands()
+            if "/" + c.name not in {c for c, _ in COMMANDS}
+        }
 
     # -- layout --------------------------------------------------------------
 
@@ -620,9 +627,14 @@ class ZtuiApp(App):
         self._update_menu(self._input.text)
 
     def _all_commands(self) -> list[tuple[str, str]]:
-        return COMMANDS + [
+        rows = COMMANDS + [
             (c, f"skill: {s.description[:60]}") for c, s in self._skill_by_command.items()
         ]
+        rows += [
+            (c, f"command: {(c_.description or '')[:56]}")
+            for c, c_ in self._plugin_cmds.items()
+        ]
+        return rows
 
     def _update_menu(self, text: str) -> None:
         mode = self._menu_mode()
@@ -881,16 +893,7 @@ class ZtuiApp(App):
         elif cmd == "/sessions":
             self.run_worker(self._zsessions_picker(), exclusive=False, name="zsessions-picker")
         elif cmd == "/help":
-            lines = [f"{c} — {d}" for c, d in COMMANDS]
-            if self._skill_by_command:
-                names = " ".join(self._skill_by_command)
-                lines.append(f"skills loaded: {names}")
-            lines += [
-                "",
-                "enter send · shift+enter/ctrl+j newline · esc interrupt",
-                "shift+tab plan/build · ctrl+o expand outputs · @ mentions files",
-            ]
-            self._notice("\n".join(lines))
+            self.run_worker(self._help_panel(), exclusive=False, name="help")
         elif cmd == "/model":
             self.run_worker(self._pick_model(), exclusive=False, name="model-picker")
         elif cmd == "/mode":
@@ -1035,6 +1038,15 @@ class ZtuiApp(App):
             self._notice(f"running skill /{skill.name}…")
             self._ensure_session()
             self._agent_task = asyncio.create_task(self._run_agent(prompt_body))
+        elif cmd in self._plugin_cmds:
+            if self._agent_busy:
+                self._notice("agent is working — esc to interrupt, or wait")
+                return
+            pcmd = self._plugin_cmds[cmd]
+            from ..agent.pcommands import command_prompt
+
+            self._ensure_session()
+            self._agent_task = asyncio.create_task(self._run_agent(command_prompt(pcmd, arg.strip())))
         else:
             self._notice(f"unknown command {cmd} — /help lists them")
 
@@ -1427,6 +1439,11 @@ class ZtuiApp(App):
             self._notify_error(f"cannot read checkpoint: {e}")
             return
         await self._modal(CheckpointDetailScreen(cp, drift, extra))
+
+    async def _help_panel(self) -> None:
+        from .prompts import HelpScreen
+
+        await self._modal(HelpScreen(self))
 
     async def _workflow_panel(self) -> None:
         from ..agent import zworkflows

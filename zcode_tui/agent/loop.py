@@ -76,6 +76,10 @@ class AgentLoop:
         self.state: dict[str, Any] = {}
         self.usage = Usage()
         self._cancelled = False
+        self.metrics: dict[str, Any] = {
+            "ttft_s": None, "tok_per_s": 0.0, "cache_ratio": 0.0,
+            "cache_read": 0, "ctx_used": 0, "calls": 0,
+        }
 
     # -- control -------------------------------------------------------------
 
@@ -210,6 +214,10 @@ class AgentLoop:
         blocks: list[dict[str, Any]] = []
         cur: dict[str, Any] | None = None
         stop_reason = "end_turn"
+        monotonic = __import__("time").monotonic
+        call_started = monotonic()
+        first_token_at: float | None = None
+        last_usage: dict[str, int] = {}
 
         def _flush() -> None:
             nonlocal cur
@@ -228,6 +236,12 @@ class AgentLoop:
             if self._cancelled:
                 break
             t = ev.get("type")
+            if first_token_at is None and t in (
+                "text_delta", "reasoning_delta",
+                "tool_use_start",
+            ):
+                first_token_at = monotonic()
+                self.metrics["ttft_s"] = round(first_token_at - call_started, 2)
             if t == "text_start":
                 _flush()
                 cur = {"type": "text", "text": ""}
@@ -254,14 +268,28 @@ class AgentLoop:
                 _flush()
                 await self.cb.on_block_end()
             elif t == "usage":
-                self.usage.add(ev.get("usage", {}))
-                await self.cb.on_usage(ev.get("usage", {}))
+                last_usage = dict(ev.get("usage", {}))
+                self.usage.add(last_usage)
+                await self.cb.on_usage(last_usage)
             elif t == "finish":
                 stop_reason = ev.get("stop_reason", "end_turn")
             elif t == "error":
                 await self.cb.on_error(ev.get("message", "unknown error"))
                 return "error"
         _flush()
+        # Per-call speed/cache metrics for the UI metrics bar.
+        duration = max(0.01, monotonic() - call_started)
+        out_tok = int(last_usage.get("output_tokens", 0) or 0)
+        self.metrics["tok_per_s"] = round(out_tok / duration, 1)
+        cache_read = int(last_usage.get("cache_read_input_tokens", 0) or 0)
+        in_tok = int(last_usage.get("input_tokens", 0) or 0)
+        cache_write = int(last_usage.get("cache_creation_input_tokens", 0) or 0)
+        prompt_total = in_tok + cache_read + cache_write
+        self.metrics["cache_read"] = cache_read
+        self.metrics["cache_ratio"] = (cache_read / prompt_total) if prompt_total else 0.0
+        self.metrics["ctx_used"] = prompt_total or self.metrics["ctx_used"]
+        self.metrics["calls"] += 1
+        self.metrics["elapsed_s"] = round(duration, 2)
         # Store history without thinking blocks (no signature plumbing in M1).
         stored = [b for b in blocks if b["type"] in ("text", "tool_use")]
         if stored:

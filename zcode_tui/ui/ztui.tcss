@@ -89,6 +89,12 @@ Screen {
   padding: 0 1;
 }
 
+#metrics-line {
+  height: 1;
+  padding: 0 2;
+  color: $mute;
+}
+
 #slash-menu {
   max-height: 9;
   border: round $edge;

@@ -12,6 +12,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, VerticalScroll
 from textual.widgets import OptionList, Static, TextArea
+from rich.text import Text
 
 from ..agent import permission
 from ..agent.loop import AgentCallbacks, AgentLoop
@@ -160,6 +161,8 @@ class ZtuiApp(App):
         self._chat = VerticalScroll(id="chat")
         yield self._chat
         with Container(id="input-dock"):
+            self._metrics_line = Static("", id="metrics-line")
+            yield self._metrics_line
             self._menu = SlashMenu(id="slash-menu")
             yield self._menu
             self._input = ChatInput(id="input")
@@ -505,6 +508,42 @@ class ZtuiApp(App):
             thinking.tick()
         if self._agent_busy:
             self._refresh_status()
+        self._refresh_metrics()
+
+    @staticmethod
+    def _fmt_num(n: int) -> str:
+        if n >= 1_000_000:
+            return f"{n / 1_000_000:.1f}M"
+        if n >= 1000:
+            return f"{n / 1000:.1f}k"
+        return str(n)
+
+    def _refresh_metrics(self) -> None:
+        m = self.loop.metrics
+        if not m["calls"]:
+            self._metrics_line.update("")
+            return
+        limit = max(1, self.model.context_limit)
+        used = m["ctx_used"]
+        frac = min(1.0, used / limit)
+        full = round(frac * 10)
+        bar = "▮" * full + "▯" * (10 - full)
+        frac_color = "#57ab5a" if frac < 0.5 else ("#e0af68" if frac < 0.75 else "#e5534b")
+        pct = f"{frac * 100:.0f}%" if frac >= 0.05 else f"{frac * 100:.1f}%"
+        t = Text()
+        t.append(f" {pct} ", style=f"bold {frac_color}")
+        t.append(bar, style=frac_color)
+        t.append(f"  {self._fmt_num(used)}/{self._fmt_num(limit)}", style=T.DIM)
+        if m["ttft_s"] is not None:
+            t.append(f"  ·  ⚡ {m['ttft_s']:.2f}s", style=T.DIM)
+        if m["tok_per_s"]:
+            t.append(f"  ·  {m['tok_per_s']:.0f} tok/s", style=T.DIM)
+        t.append(f"  ·  {m['cache_ratio'] * 100:.0f}%", style=T.ACCENT)
+        t.append(f" cache {self._fmt_num(m['cache_read'])}", style=T.ACCENT)
+        u = self.loop.usage
+        t.append(f"  ·  ↑{self._fmt_num(u.input + u.cache_write)}", style="#61afef")
+        t.append(f" ↓{self._fmt_num(u.output)}", style=T.DIM)
+        self._metrics_line.update(t)
 
     # -- transcript factories (called from AppCallbacks) ---------------------
 

@@ -9,11 +9,32 @@ from pathlib import Path
 from typing import Any
 
 from textual import on
+from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, VerticalScroll
 from textual.widgets import OptionList, Static, TextArea
 from rich.text import Text
+
+
+class ChatView(VerticalScroll):
+    """Transcript container with sticky-follow scrolling.
+
+    Follows the stream only while the user is at the bottom; any manual
+    scroll-up pauses following until they return to the bottom (or hit End).
+    """
+
+    def on_mouse_scroll_up(self) -> None:
+        self.app._on_user_scroll(-1)
+
+    def on_mouse_scroll_down(self) -> None:
+        self.app._on_user_scroll(1)
+
+    def on_scroll_up(self) -> None:
+        self.app._on_user_scroll(-1)
+
+    def on_scroll_down(self) -> None:
+        self.app._on_user_scroll(1)
 
 from ..agent import permission
 from ..agent.loop import AgentCallbacks, AgentLoop
@@ -105,6 +126,7 @@ class ZtuiApp(App):
         ("ctrl+k", "kill_all", "Stop subagents"),
         ("ctrl+v", "paste_attach", "Attach clipboard image"),
         ("ctrl+t", "transcript_view", "Transcript viewer"),
+        ("end", "follow_bottom", "Jump to bottom"),
         Binding("shift+tab", "toggle_mode", "Plan/build", priority=True),
     ]
 
@@ -186,11 +208,12 @@ class ZtuiApp(App):
             if "/" + p.name not in {c for c, _ in COMMANDS}
         }
         self._ctrlx_armed = 0.0
+        self._follow = True
 
     # -- layout --------------------------------------------------------------
 
     def compose(self) -> ComposeResult:
-        self._chat = VerticalScroll(id="chat")
+        self._chat = ChatView(id="chat")
         yield self._chat
         with Container(id="input-dock"):
             self._metrics_line = Static("", id="metrics-line")
@@ -248,9 +271,31 @@ class ZtuiApp(App):
             self.session = Session.create(str(self.cwd), self.provider.id, self.model.id, self.level)
             self.loop.session = self.session
 
+    # -- scrolling (sticky-follow) -------------------------------------------
+
+    def _at_bottom(self) -> bool:
+        return self._chat.scroll_offset.y >= self._chat.max_scroll_y - 1.5
+
+    def _on_user_scroll(self, direction: int) -> None:
+        """Mouse/key scrolling pauses auto-follow when leaving the bottom."""
+        if direction < 0:
+            self._follow = False
+            self._refresh_status()
+
+    def _follow_if_enabled(self) -> None:
+        if self._follow:
+            self._chat.scroll_end(animate=False)
+
     def _mount(self, widget) -> None:
+        was_bottom = self._at_bottom()
         self._chat.mount(widget)
+        if was_bottom:
+            self._chat.scroll_end(animate=False)
+
+    def action_follow_bottom(self) -> None:
+        self._follow = True
         self._chat.scroll_end(animate=False)
+        self._refresh_status()
 
     # -- input handling ------------------------------------------------------
 
@@ -725,7 +770,7 @@ class ZtuiApp(App):
         if self._cur_text is None or self._cur_text.finished:
             self.open_text()
         self._cur_text.append(delta)
-        self._chat.scroll_end(animate=False)
+        self._follow_if_enabled()
 
     def close_text(self) -> None:
         if self._cur_text is not None:
@@ -745,7 +790,7 @@ class ZtuiApp(App):
         if self._cur_thinking is None:
             self.open_thinking()
         self._cur_thinking.append(delta)
-        self._chat.scroll_end(animate=False)
+        self._follow_if_enabled()
 
     def close_thinking(self) -> None:
         if self._cur_thinking is not None:
@@ -768,7 +813,7 @@ class ZtuiApp(App):
         todos = result.meta.get("todos")
         if todos is not None:
             self._mount(TodoBlock(todos))
-        self._chat.scroll_end(animate=False)
+        self._follow_if_enabled()
 
     async def _modal(self, screen):
         """push_screen with a callback bridge — safe from any context (no worker needed)."""
@@ -1888,6 +1933,8 @@ class ZtuiApp(App):
             t.append(extra, style="#e0af68")
         if self._pairing is not None and self._pairing.status == "paired":
             t.append("    remote", style="bold #57ab5a")
+        if not self._follow:
+            t.append("  ·  scroll paused (end to resume)", style="#e0af68")
         self._status.update(t)
         self._hint.update(f" ? /help · shift+tab mode · @ file · ctrl+o expand · {MODE_HINTS[self.mode]}")
 

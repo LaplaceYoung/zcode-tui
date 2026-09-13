@@ -18,6 +18,10 @@
 | ! shell 前缀 | ✅ | 输出注入对话 |
 | 会话历史/恢复 | ✅ | JSONL store + /resume + GUI 会话续聊（/sessions，sqlite 只读） |
 | 自定义 agents（~/.zcode/agents/*.md） | ✅ | persona 亦可作 task <:task> 参数；`/agents` 面板只读；斜杠命令 |
+| git worktree | ✅ | /worktree 面板：分支/HEAD/路径 + 每树 dirty 状态行（add/remove 走 agent git 命令） |
+| trajectory 轨迹 | ✅ | /trajectory 全屏事件轨迹（消息/工具/usage/compaction 时间序）+ /trajectory export JSONL |
+| 项目 wiki | ✅ | /wiki 生成 docs/wiki/ 五页（index/architecture/modules/build-and-run/faq），增量更新 |
+| dwf workflow 执行 | ✅（driver 复用） | /workflow-run <launcher.mjs>：launcher 自带沙箱+stdio 协议，ztui 扮演 driver（ask→AgentLoop、world-read→白名单命令），journal/手机端与 GUI 完全同源；GUI 的 CreateWorkflow 编辑器仍属 GUI |
 | MCP（外部工具标准） | ✅ stdio | `mcp.json` 配 opencode/CC 同构；挂进 loop 基础到真正的服务器；HTTP/SSE 暂缓 |
 | 侧问 /btw | ✅ | 顺手问不打扰主回合 |
 | 粘贴智能 | ✅ | Ctrl+V 图片剪贴 + 大段文本 chip 化 |
